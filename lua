@@ -510,10 +510,13 @@ local function AP_GoodTarget(player)
     return true
 end
 
+
 local function AP_Start()
     if AutoParry.Connection then
         AutoParry.Connection:Disconnect()
     end
+
+    AutoParry.Seen = setmetatable({}, {__mode = "k"})
 
     AutoParry.Connection = RunService.Heartbeat:Connect(function()
         if not AutoParry.Enabled then return end
@@ -530,14 +533,14 @@ local function AP_Start()
                 if targetRoot and humanoid then
                     for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
                         if not AutoParry.Seen[track] then
-                            AutoParry.Seen[track] = true
-
-                            if track.TimePosition <= 0.3
+                            local validAttack =
+                                track.TimePosition <= 0.3
                                 and AP_IsAttack(track)
                                 and AP_GoodTarget(player)
                                 and (targetRoot.Position - root.Position).Magnitude <= AutoParry.Range
-                                and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown then
+                                and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown
 
+                            if validAttack then
                                 local facing = true
 
                                 if AutoParry.Facing then
@@ -550,6 +553,7 @@ local function AP_Start()
                                 end
 
                                 if facing then
+                                    AutoParry.Seen[track] = true
                                     AutoParry.LastParry = os.clock()
                                     task.delay(AutoParry.Delay, AP_Press)
                                 end
@@ -561,6 +565,7 @@ local function AP_Start()
         end
     end)
 end
+
 
 local function AP_Stop()
     AutoParry.Enabled = false
