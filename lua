@@ -390,6 +390,35 @@ local AP_Keys = {
     {"R", Enum.KeyCode.R}
 }
 
+local AP_PendingResult = false
+local AP_ResultConnection = nil
+
+local AP_PendingResult = false
+local AP_ResultConnection = nil
+
+-- LISTENER PARry RESULT
+local function AP_ListenResult()
+    local remote = game:GetService("ReplicatedStorage")
+        :WaitForChild("Remotes")
+        :WaitForChild("Items")
+        :WaitForChild("Parrying Dagger")
+        :WaitForChild("parryResult")
+
+    if AP_ResultConnection then
+        AP_ResultConnection:Disconnect()
+    end
+
+    AP_ResultConnection = remote.OnClientEvent:Connect(function(...)
+        print("[HANX AP] ParryResult:", ...)
+    end)
+end
+
+AP_ListenResult()
+
+-- FUNGSI AP_PRESS DI BAWAH SINI
+local function AP_Press()
+    
+
 local function AP_Press()
     if not AutoParry.Enabled then return end
     print("[HANX HUB] AP_Press terpanggil! Mode:", AutoParry.Mode)
