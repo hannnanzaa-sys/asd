@@ -530,41 +530,36 @@ local function AP_Start()
                 local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
                 local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
 
-                if targetRoot and humanoid then
-                    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+                    if targetRoot and humanoid then
+    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+        if not AutoParry.Seen[track] then
+            local validAttack =
+                track.TimePosition <= 0.3
+                and AP_IsAttack(track)
+                and AP_GoodTarget(player)
+                and (targetRoot.Position - root.Position).Magnitude <= AutoParry.Range
+                and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown
+
+            if validAttack then
+                local facing = true
+
+                if AutoParry.Facing then
+                    local direction = root.Position - targetRoot.Position
+                    direction = Vector3.new(direction.X, 0, direction.Z)
+
+                    if direction.Magnitude > 0.1 then
+                        facing = targetRoot.CFrame.LookVector:Dot(direction.Unit) > 0.35
                     end
-                        if not AutoParry.Seen[track] then
-                            local validAttack =
-                                track.TimePosition <= 0.3
-                                and AP_IsAttack(track)
-                                and AP_GoodTarget(player)
-                                and (targetRoot.Position - root.Position).Magnitude <= AutoParry.Range
-                                and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown
+                end
 
-                            if validAttack then
-                                local facing = true
-
-                                if AutoParry.Facing then
-                                    local direction = root.Position - targetRoot.Position
-                                    direction = Vector3.new(direction.X, 0, direction.Z)
-
-                                    if direction.Magnitude > 0.1 then
-                                        facing = targetRoot.CFrame.LookVector:Dot(direction.Unit) > 0.35
-                                    end
-                                end
-
-                                if facing then
-                                    AutoParry.Seen[track] = true
-                                    AutoParry.LastParry = os.clock()
-                                    --task.delay(AutoParry.Delay, AP_Press)
-                                end
-                            end
-                        end
-                    end
+                if facing then
+                    AutoParry.Seen[track] = true
+                    AutoParry.LastParry = os.clock()
+                    task.delay(AutoParry.Delay, AP_Press)
                 end
             end
         end
-    end)
+    end
 end
 
 
