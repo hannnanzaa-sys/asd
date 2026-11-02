@@ -394,30 +394,7 @@ local AP_Keys = {
 local AP_PendingResult = false
 local AP_ResultConnection = nil
 
--- LISTENER PARry RESULT
-local function AP_ListenResult()
-    local remote = game:GetService("ReplicatedStorage")
-        :WaitForChild("Remotes")
-        :WaitForChild("Items")
-        :WaitForChild("Parrying Dagger")
-        :WaitForChild("parryResult")
 
-    if AP_ResultConnection then
-        AP_ResultConnection:Disconnect()
-    end
-
-    AP_ResultConnection = remote.OnClientEvent:Connect(function(...)
-        print("[HANX AP] ParryResult:", ...)
-    end)
-end
-
-task.spawn(function()
-    local success, err = pcall(AP_ListenResult)
-
-    if not success then
-        warn("[HANX AP] Listener error:", err)
-    end
-end)
 -- FUNGSI AP_PRESS DI BAWAH SINI
 
 local function AP_Press()
