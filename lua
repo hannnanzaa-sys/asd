@@ -390,8 +390,6 @@ local AP_Keys = {
     {"R", Enum.KeyCode.R}
 }
 
-local AP_PendingResult = false
-local AP_ResultConnection = nil
 
 local AP_PendingResult = false
 local AP_ResultConnection = nil
@@ -416,8 +414,6 @@ end
 AP_ListenResult()
 
 -- FUNGSI AP_PRESS DI BAWAH SINI
-local function AP_Press()
-    
 
 local function AP_Press()
     if not AutoParry.Enabled then return end
