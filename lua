@@ -559,7 +559,7 @@ local function AP_Start()
                 end
             end
         end
-    end
+    end)
 end
 
 
