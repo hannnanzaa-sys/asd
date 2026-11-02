@@ -532,6 +532,7 @@ local function AP_Start()
 
                 if targetRoot and humanoid then
                     for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+                    end
                         if not AutoParry.Seen[track] then
                             local validAttack =
                                 track.TimePosition <= 0.3
@@ -555,7 +556,7 @@ local function AP_Start()
                                 if facing then
                                     AutoParry.Seen[track] = true
                                     AutoParry.LastParry = os.clock()
-                                    task.delay(AutoParry.Delay, AP_Press)
+                                    --task.delay(AutoParry.Delay, AP_Press)
                                 end
                             end
                         end
