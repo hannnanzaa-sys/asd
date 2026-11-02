@@ -411,8 +411,13 @@ local function AP_ListenResult()
     end)
 end
 
-AP_ListenResult()
+task.spawn(function()
+    local success, err = pcall(AP_ListenResult)
 
+    if not success then
+        warn("[HANX AP] Listener error:", err)
+    end
+end)
 -- FUNGSI AP_PRESS DI BAWAH SINI
 
 local function AP_Press()
