@@ -914,11 +914,7 @@ CreateMimiwButton(
     function(btn, txt)
         AutoParry.Enabled = not AutoParry.Enabled
 
-        if AutoParry.Enabled then
-            AP_Start()
-        else
-            AP_Stop()
-        end
+      print("[HANX] Auto Parry button clicked")
 
         txt.Text = "Auto Parry: " .. (AutoParry.Enabled and "ON" or "OFF")
         btn.BackgroundColor3 = AutoParry.Enabled and Theme.Neon or Theme.ToggleOff
