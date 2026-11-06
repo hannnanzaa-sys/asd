@@ -1,514 +1,168 @@
-if not game:IsLoaded() then repeat wait() until game:IsLoaded() end
-
-local CoreGui = game:GetService("CoreGui")
-local UserInputService = game:GetService("UserInputService")
-local TweenService = game:GetService("TweenService")
+-- HANX HUB v17.5 | Sidebar Text Layout Fix (FIXED GEN & TEXTBOX)
+-- Catatan: gunakan hanya di experience milik sendiri atau yang mengizinkan pengujian.
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
-local VirtualInputManager = game:GetService("VirtualInputManager")
-local GuiService = game:GetService("GuiService")
-local Lighting = game:GetService("Lighting")
+local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local LP = Players.LocalPlayer
-local playerGui = LP:WaitForChild("PlayerGui")
-
-local Perf = { ESP_Refresh = 0.5, Skill_Refresh = 0.02 }
+local FastVaultEnabled = false
 
 -- ============================================================
--- 1. TELEPORT & FOLLOW
+-- FAST VAULT (V35 ENGINE)
 -- ============================================================
-local selectedPlayer = nil
-local isFollowing = false
-local followThread = nil
+local V35_Code = [[
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local LP = Players.LocalPlayer
+local FastVaultEnabled = false
+local ControllerModule
 
-local function TeleportToPlayer(targetName)
-    local myChar = LP.Character
-    if not myChar then return end
-    local myRoot = myChar:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return end
-    local targetPlayer = Players:FindFirstChild(targetName)
-    if targetPlayer and targetPlayer.Character then
-        local targetRoot = targetPlayer.Character:FindFirstChild("HumanoidRootPart")
-        if targetRoot then myRoot.CFrame = targetRoot.CFrame + Vector3.new(0, 3, 0) end
-    end
-end
-
-local function GetPlayerNames()
-    local names = {}
-    for _, plr in ipairs(Players:GetPlayers()) do if plr ~= LP then table.insert(names, plr.Name) end end
-    return names
-end
-
--- ============================================================
--- 2. ESP SYSTEM
--- ============================================================
-local ESP_Status = {Survivor = false, Killer = false, Pallets = false, Windows = false, Gens = false, Traps = false, Pumpkins = false}
-local ESP_Colors = {Survivor = Color3.fromRGB(0, 255, 0), Killer = Color3.fromRGB(255, 0, 0), Pallets = Color3.fromRGB(0, 255, 255), Windows = Color3.fromRGB(255, 255, 0), Gens = Color3.fromRGB(150, 0, 255), Traps = Color3.fromRGB(255, 105, 180), Pumpkins = Color3.fromRGB(255, 140, 0)}
-local ESP_Cache = {}
-
-local function CreateHighlight(obj, color, name)
-    if not obj then return end
-    local hl = Instance.new("Highlight")
-    hl.Name = "HANX_ESP_" .. name
-    hl.Adornee = obj
-    hl.FillColor = color
-    hl.OutlineColor = color
-    hl.FillTransparency = 0.5
-    hl.OutlineTransparency = 0
-    hl.Parent = obj
-    return hl
-end
-
-local function ClearESP()
-    for obj, hl in pairs(ESP_Cache) do if hl and hl.Parent then hl:Destroy() end end
-    ESP_Cache = {}
-    for _, v in ipairs(workspace:GetDescendants()) do
-        if v:IsA("Highlight") and string.find(v.Name, "HANX_ESP_") then v:Destroy() end
-    end
-end
-
-local function UpdateESP()
-    for obj, hl in pairs(ESP_Cache) do
-        if not obj.Parent then
-            if ESP_Cache[obj] then ESP_Cache[obj]:Destroy(); ESP_Cache[obj] = nil end
-        end
-    end
-
-    if ESP_Status.Survivor or ESP_Status.Killer then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            if plr ~= LP and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-                local isKiller = plr.Team and plr.Team.Name:lower():find("killer")
-                if (isKiller and ESP_Status.Killer) or (not isKiller and ESP_Status.Survivor) then
-                    local color = isKiller and ESP_Colors.Killer or ESP_Colors.Survivor
-                    local name = isKiller and "Killer" or "Survivor"
-                    local expected = "HANX_ESP_" .. name
-                    for _, child in ipairs(plr.Character:GetChildren()) do
-                        if child:IsA("Highlight") and string.find(child.Name, "HANX_ESP_") and child.Name ~= expected then child:Destroy() end
-                    end
-                    if not plr.Character:FindFirstChild(expected) then CreateHighlight(plr.Character, color, name) end
-                else
-                    for _, child in ipairs(plr.Character:GetChildren()) do
-                        if child:IsA("Highlight") and string.find(child.Name, "HANX_ESP_") then child:Destroy() end
-                    end
-                end
-            end
-        end
-    end
-
-    local map = workspace:FindFirstChild("Map")
-    if map then
-        for _, obj in ipairs(map:GetDescendants()) do
-            local n = string.lower(obj.Name)
-            local targetColor, typeName = nil, ""
-            
-            if n:find("pallet") and ESP_Status.Pallets then targetColor = ESP_Colors.Pallets; typeName = "Pallet"
-            elseif n:find("window") and ESP_Status.Windows then targetColor = ESP_Colors.Windows; typeName = "Window"
-            elseif n:find("generator") and ESP_Status.Gens then targetColor = ESP_Colors.Gens; typeName = "Gen"
-            elseif (n:find("trap") or n:find("bear") or n:find("snare")) and ESP_Status.Traps then targetColor = ESP_Colors.Traps; typeName = "Trap"
-            elseif (n:find("pumpkin") or n:find("labu")) and ESP_Status.Pumpkins then targetColor = ESP_Colors.Pumpkins; typeName = "Pumpkin"
-            end
-
-            if targetColor and (obj:IsA("Model") or obj:IsA("BasePart") or obj:IsA("UnionOperation")) then
-                if not ESP_Cache[obj] then ESP_Cache[obj] = CreateHighlight(obj, targetColor, typeName) end
-            end
-        end
-    end
-end
-
-task.spawn(function() while task.wait(Perf.ESP_Refresh) do pcall(UpdateESP) end end)
-
--- ============================================================
--- 3. AUTO SKILL CHECK
--- ============================================================
-local _G = _G or getgenv() or {}
-if not _G.Ox then _G.Ox = {} end
-_G.Ox.Auto = { SkillCheck = false, SkillCheckMode = "Normal" }
-_G.Ox.State = _G.Ox.State or { busy = false }
-_G.Ox.Connections = _G.Ox.Connections or { SkillHeartbeat = nil }
-
-local function fn7()
-    if _G.Ox.Connections.SkillHeartbeat then _G.Ox.Connections.SkillHeartbeat:Disconnect(); _G.Ox.Connections.SkillHeartbeat = nil end
-    _G.Ox.Connections.SkillHeartbeat = RunService.RenderStepped:Connect(function()
-        if not _G.Ox.Auto.SkillCheck or _G.Ox.State.busy then return end
-        local skillCheckPromptGui = playerGui:FindFirstChild("SkillCheckPromptGui")
-        if not skillCheckPromptGui then return end
-        local check = skillCheckPromptGui:FindFirstChild("Check")
-        if not check or not check.Visible then return end
-        local line = check:FindFirstChild("Line")
-        local goal = check:FindFirstChild("Goal")
-        if not line or not goal then return end
-        
-        line.Rotation = goal.Rotation + 125
-        _G.Ox.State.busy = true
-        
-        pcall(function()
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
-            task.wait(0.01)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+task.spawn(function()
+    if not game:IsLoaded() then game.Loaded:Wait() end
+    local controller
+    for attempt = 1, 10 do
+        local success, result = pcall(function()
+            local modules = ReplicatedStorage:WaitForChild("Modules", 5)
+            if not modules then return nil end
+            local survivors = modules:WaitForChild("Survivors", 5)
+            if not survivors then return nil end
+            local module = survivors:WaitForChild("SurvivorAnimationsController", 5)
+            if not module then return nil end
+            return require(module)
         end)
-        
-        local survivorMob = playerGui:FindFirstChild("Survivor-mob")
-        local controls = survivorMob and survivorMob:FindFirstChild("Controls")
-        local action = controls and (controls:FindFirstChild("action") or controls:FindFirstChild("check"))
-        if action and action:IsA("GuiButton") then pcall(function() if firesignal then firesignal(action.MouseButton1Down); firesignal(action.MouseButton1Up) end end) end
-        
-        task.wait(0.5)
-        _G.Ox.State.busy = false
-    end)
-end
-
--- ============================================================
--- 4. AUTO DROP PALLET (SURVIVOR)
--- ============================================================
-local AutoPallet = { Enabled = false, Distance = 10, Cooldown = 2.5, LastDrop = 0, Thread = nil, UsedPallets = {} }
-
-local function AP_IsSurvivorBusy(character)
-    if not character then return true end
-    if character:GetAttribute("Knocked") == true or character:GetAttribute("IsCarried") == true or character:GetAttribute("IsHooked") == true then return true end
-    local check = character:FindFirstChild("CheckInterractable")
-    if check then
-        if check:GetAttribute("isVaulting") == true or check:GetAttribute("isRepairing") == true or check:GetAttribute("isUnhooking") == true or check:GetAttribute("isHealing") == true or check:GetAttribute("isSliding") == true then return true end
+        if success and result then controller = result break end
+        task.wait(1)
     end
-    local hum = character:FindFirstChildOfClass("Humanoid")
-    if hum and hum.Health <= 0 then return true end
-    return false
-end
+    if not controller then return end
+    ControllerModule = controller
 
-local function AP_GetNearestKiller(myRoot)
-    local nearest, nearestDist = nil, math.huge
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP and plr.Team and plr.Team.Name == "Killer" and plr.Character then
-            local root = plr.Character:FindFirstChild("HumanoidRootPart")
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            if root and hum and hum.Health > 0 then
-                local dist = (root.Position - myRoot.Position).Magnitude
-                if dist < nearestDist then nearestDist = dist; nearest = plr end
-            end
-        end
+    local OriginalFacing = controller._isFacingStraightEnough
+    local OriginalVault = controller._onVaultAnimation
+
+    controller._isFacingStraightEnough = function(self, part1, part2, angle)
+        if not FastVaultEnabled then return OriginalFacing(self, part1, part2, angle) end
+        self.characterspeed = 30
+        return true, 0
     end
-    return nearest, nearestDist
-end
 
-local function AP_GetNearestPallet(myRoot)
-    local map = workspace:FindFirstChild("Map")
-    if not map then return nil, math.huge end
-    local nearest, nearestDist = nil, math.huge
-    for _, obj in ipairs(map:GetDescendants()) do
-        if obj.Name == "PrimaryPartPallet" and obj:IsA("BasePart") then
-            local parent = obj.Parent
-            if parent then
-                local dist = (obj.Position - myRoot.Position).Magnitude
-                if dist < nearestDist then nearestDist = dist; nearest = {part = obj, model = parent} end
-            end
-        end
-    end
-    return nearest, nearestDist
-end
-
-local function AP_DropPallet(palletModel)
-    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-    if not remotes then return false end
-    local dropEvent = nil
-    for _, folderName in ipairs({"Pallet", "Window", "Mechanic", "Interact"}) do
-        local folder = remotes:FindFirstChild(folderName)
-        if folder then
-            for _, eventName in ipairs({"PalletDropEvent", "DropPallet", "PalletEvent", "PalletDrop"}) do
-                local ev = folder:FindFirstChild(eventName)
-                if ev and ev:IsA("RemoteEvent") then dropEvent = ev; break end
-            end
-        end
-        if dropEvent then break end
-    end
-    if not dropEvent then return false end
-    local palletPoint = palletModel:FindFirstChild("PalletPoint") or palletModel:FindFirstChild("PalletPointSlide") or palletModel:FindFirstChildWhichIsA("BasePart")
-    if not palletPoint then return false end
-    pcall(function() dropEvent:FireServer(palletPoint) end)
-    return true
-end
-
-local function AP_StartLoop()
-    if AutoPallet.Thread then task.cancel(AutoPallet.Thread) end
-    AutoPallet.UsedPallets = {}
-    AutoPallet.Thread = task.spawn(function()
-        while AutoPallet.Enabled do
-            task.wait(0.2)
-            if LP.Team and LP.Team.Name ~= "Survivors" then continue end
-            if tick() - AutoPallet.LastDrop < AutoPallet.Cooldown then continue end
-            pcall(function()
-                local myChar = LP.Character
-                local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
-                if not myRoot then return end
-                if AP_IsSurvivorBusy(myChar) then return end
-                local killer, killerDist = AP_GetNearestKiller(myRoot)
-                if not killer or killerDist > AutoPallet.Distance then return end
-                local pallet, palletDist = AP_GetNearestPallet(myRoot)
-                if not pallet or palletDist > 14 then return end
-                if AP_DropPallet(pallet.model) then AutoPallet.UsedPallets[pallet.model] = true; AutoPallet.LastDrop = tick() end
-            end)
-        end
-    end)
-end
-
-local function AP_StopLoop()
-    AutoPallet.Enabled = false
-    if AutoPallet.Thread then task.cancel(AutoPallet.Thread); AutoPallet.Thread = nil end
-    AutoPallet.UsedPallets = {}
-end
-
--- ============================================================
--- 5. KILLER AIMBOT + AUTO M1
--- ============================================================
-local KillerConfig = { Enabled = false, MaxDist = 12, Smoothness = 0.5, AutoM1 = false, Interval = 0.15, LastAttack = 0, POVCheck = true, Wallcheck = true, Highlight = nil, Conn = nil }
-local KA_IsMobile = UserInputService.TouchEnabled and not UserInputService.KeyboardEnabled
-
-local function KA_GetSurvivors()
-    local list = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= LP and plr.Team and plr.Team.Name == "Survivors" and plr.Character then
-            local hum = plr.Character:FindFirstChildOfClass("Humanoid")
-            local root = plr.Character:FindFirstChild("HumanoidRootPart")
-            if hum and root and hum.Health > 0 and plr.Character:GetAttribute("Knocked") ~= true and plr.Character:GetAttribute("IsHooked") ~= true then
-                table.insert(list, {player = plr, hum = hum, root = root})
-            end
-        end
-    end
-    return list
-end
-
-local function KA_HasLOS(fromPos, targetPart)
-    local rp = RaycastParams.new()
-    rp.FilterType = Enum.RaycastFilterType.Exclude
-    rp.FilterDescendantsInstances = {LP.Character, targetPart.Parent}
-    local dir = targetPart.Position - fromPos
-    if dir.Magnitude < 0.1 then return true end
-    return workspace:Raycast(fromPos, dir.Unit * dir.Magnitude, rp) == nil
-end
-
-local function KA_GetTarget()
-    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-    if not myRoot then return nil end
-    local best, bestDist = nil, math.huge
-    for _, entry in ipairs(KA_GetSurvivors()) do
-        local dist = (entry.root.Position - myRoot.Position).Magnitude
-        if dist <= KillerConfig.MaxDist and dist < bestDist then bestDist = dist; best = entry end
-    end
-    return best
-end
-
-local function KA_IsInPOV(myRoot, targetRoot)
-    if not KillerConfig.POVCheck then return true end
-    local toTarget = targetRoot.Position - myRoot.Position
-    local flat = Vector3.new(toTarget.X, 0, toTarget.Z)
-    if flat.Magnitude < 0.1 then return true end
-    local look = KA_IsMobile and (workspace.CurrentCamera and workspace.CurrentCamera.CFrame.LookVector or myRoot.CFrame.LookVector) or myRoot.CFrame.LookVector
-    local flatLook = Vector3.new(look.X, 0, look.Z)
-    if flatLook.Magnitude < 0.1 then return false end
-    return flatLook.Unit:Dot(flat.Unit) >= 0.4
-end
-
-local function KA_FireAttack()
-    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
-    local killers = remotes and remotes:FindFirstChild("Killers")
-    if killers then
-        for _, name in ipairs({"BasicAttack", "Attack", "M1", "BasicAttackEvent", "Melee"}) do
-            local r = killers:FindFirstChild(name)
-            if r and r:IsA("RemoteEvent") then pcall(function() r:FireServer() end); return end
-        end
-    end
-    if KA_IsMobile then
-        local pg = LP:FindFirstChild("PlayerGui")
-        for _, child in ipairs(pg:GetChildren()) do
-            if child:IsA("ScreenGui") and string.sub(child.Name, -4) == "-mob" and child.Name ~= "Survivor-mob" then
-                local attack = child:FindFirstChild("Controls") and (child.Controls:FindFirstChild("attack") or child.Controls:FindFirstChild("Gui-mob"))
-                if attack and attack.Visible and firesignal then pcall(function() firesignal(attack.MouseButton1Down); task.wait(0.02); firesignal(attack.MouseButton1Up) end); return end
-            end
-        end
-    else
-        pcall(function()
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, true, game, 0)
-            task.wait(0.01)
-            VirtualInputManager:SendMouseButtonEvent(0, 0, 0, false, game, 0)
-        end)
-    end
-end
-
-local function KA_StartLoop()
-    if KillerConfig.Conn then KillerConfig.Conn:Disconnect() end
-    KillerConfig.Conn = RunService.Heartbeat:Connect(function()
-        if not KillerConfig.Enabled then return end
-        local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-        if not myRoot then return end
-        local target = KA_GetTarget()
-        if not target then if KillerConfig.Highlight then KillerConfig.Highlight.Adornee = nil end; return end
-
-        if KillerConfig.Highlight then KillerConfig.Highlight.Adornee = target.player.Character else
-            local hl = Instance.new("Highlight"); hl.Name = "HANX_Aim"; hl.FillColor = Color3.fromRGB(255, 50, 50); hl.OutlineColor = Color3.fromRGB(255, 255, 255); hl.FillTransparency = 0.5; hl.Adornee = target.player.Character; hl.Parent = game:GetService("CoreGui"); KillerConfig.Highlight = hl
-        end
-        local cam = workspace.CurrentCamera
-        if cam then cam.CFrame = cam.CFrame:Lerp(CFrame.new(cam.CFrame.Position, target.root.Position), KillerConfig.Smoothness) end
-        myRoot.CFrame = myRoot.CFrame:Lerp(CFrame.new(myRoot.Position, Vector3.new(target.root.Position.X, myRoot.Position.Y, target.root.Position.Z)), KillerConfig.Smoothness)
-
-        if KillerConfig.AutoM1 and tick() - KillerConfig.LastAttack >= KillerConfig.Interval then
-            if KA_IsInPOV(myRoot, target.root) and (not KillerConfig.Wallcheck or KA_HasLOS(myRoot.Position, target.root)) then
-                KillerConfig.LastAttack = tick()
-                KA_FireAttack()
-            end
-        end
-    end)
-end
-
-local function KA_StopLoop()
-    if KillerConfig.Conn then KillerConfig.Conn:Disconnect(); KillerConfig.Conn = nil end
-    if KillerConfig.Highlight then KillerConfig.Highlight:Destroy(); KillerConfig.Highlight = nil end
-end
-
--- ============================================================
--- HANX HUB AUTO PARRY
--- ============================================================
-
--- Menggunakan Players, RunService, UserInputService,
--- VirtualInputManager, LP yang sudah ada di HANX HUB.
-
-local AutoParry = {
-    Enabled = false,
-    Mode = "PC ONLY!",
-    Range = 18,
-    Delay = 0.08,
-    Cooldown = 0.35,
-    KeyIndex = 1,
-    KillerOnly = true,
-    Facing = true,
-    LastParry = 0,
-    Count = 0,
-    Seen = setmetatable({}, {__mode = "k"}),
-    Connection = nil
-}
-
-local AP_Keys = {
-    {"F", Enum.KeyCode.F},
-    {"Q", Enum.KeyCode.Q},
-    {"E", Enum.KeyCode.E},
-    {"R", Enum.KeyCode.R}
-}
-
-local function AP_Press()
-    if not AutoParry.Enabled then return end
-
-    local keyData = AP_Keys[AutoParry.KeyIndex]
-    if not keyData then return end
-
-    local key = keyData[2]
-
-    pcall(function()
-        VirtualInputManager:SendKeyEvent(true, key, false, game)
-        task.wait(0.05)
-        VirtualInputManager:SendKeyEvent(false, key, false, game)
-    end)
-
-    AutoParry.Count = AutoParry.Count + 1
-end
-
-    elseif AutoParry.Mode == "HP" then
-        local pg = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-
-for _, v in ipairs(pg:GetDescendants()) do
-    if v:IsA("ImageButton") or v:IsA("TextButton") then
-        print(
-            "NAME:", v.Name,
-            "| PATH:", v:GetFullName(),
-            "| IMAGE:", v:IsA("ImageButton") and v.Image or "-",
-            "| TEXT:", v:IsA("TextButton") and v.Text or "-"
-        )
-    end
-end
-        local pg = LP:FindFirstChild("PlayerGui")
-        local mobileGui = pg and pg:FindFirstChild("Survivor-mob")
-        local controls = mobileGui and mobileGui:FindFirstChild("Controls")
-        local guiMob = controls and controls:FindFirstChild("Gui-mob")
-        local back = guiMob and guiMob:FindFirstChild("back", true)
-
-        if back and back:IsA("GuiButton") and back.Visible then
-            pcall(function()
-                if firesignal then
-                    firesignal(back.MouseButton1Down)
-                    task.wait(0.05)
-                    firesignal(back.MouseButton1Up)
-                else
-                    back:Activate()
+    controller._onVaultAnimation = function(self, vaultPoint, sprinting, requestId)
+        if not FastVaultEnabled then return OriginalVault(self, vaultPoint, sprinting, requestId) end
+        if self.isVaulting then return end
+        self.isSlideingPallet = false
+        if self.character then self.character:SetAttribute("vaultspeed", 2.0) end
+        local result = table.pack(pcall(function()
+            return OriginalVault(self, vaultPoint, true, requestId)
+        end))
+        task.delay(0.15, function()
+            if self.isVaulting then
+                if self.activeVaultTrack then pcall(function() self.activeVaultTrack:Stop() end) end
+                if self.humanoidRootPart and vaultPoint then
+                    local targetCFrame = vaultPoint.CFrame * CFrame.new(0, 2, -1)
+                    self.humanoidRootPart.CFrame = targetCFrame
                 end
-            end)
+                if self.VaultCompleteEvent then
+                    pcall(function() self.VaultCompleteEvent:FireServer(vaultPoint, true, requestId, self.character) end)
+                end
+                self.isVaulting = false
+                self.humanoid.AutoRotate = true
+                self:_finishVaultOrSlideSpeed(true)
+                self:_checkConditions()
+            end
+        end)
+        task.delay(1.0, function() if self.character then self.character:SetAttribute("vaultspeed", 1) end end)
+        return table.unpack(result, 2, result.n)
+    end
+end)
+
+_G.HANX_V35_ENABLED = false
+local LastState = false
+RunService.Heartbeat:Connect(function()
+    if _G.HANX_V35_ENABLED ~= LastState then
+        LastState = _G.HANX_V35_ENABLED
+        FastVaultEnabled = LastState
+    end
+end)
+]]
+
+task.spawn(function()
+    local ls = loadstring or (syn and syn.loadstring) or (secure_loadstring) or nil
+    if not ls then
+        warn("[HANX HUB] loadstring tidak tersedia — Fast Vault nonaktif")
+        return
+    end
+    local func, err = ls(V35_Code)
+    if func then pcall(func) else warn("[HANX HUB] Gagal load V35:", err) end
+end)
+
+task.spawn(function()
+    local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+    local windowFolder = remotes:WaitForChild("Window")
+    local fastVaultEvent = windowFolder:WaitForChild("fastvault")
+    while task.wait(0.5) do
+        if FastVaultEnabled then
+            pcall(function() fastVaultEvent:FireServer(LP) end)
         end
     end
+end)
 
-    AutoParry.Count = AutoParry.Count + 1
-end
+-- ============================================================
+-- AUTO PARRY ENGINE
+-- ============================================================
+local AutoParryEnabled = false
+local AutoParry = { Pending = false, Seen = setmetatable({}, {__mode = "k"}), LastParry = 0, Cooldown = 0.15, Delay = 0.01, Range = 15, Conn = nil }
 
 local function AP_IsAttack(track)
     if track.Looped then return false end
-
     local priority = track.Priority
-
-    return priority == Enum.AnimationPriority.Action
-        or priority == Enum.AnimationPriority.Action2
-        or priority == Enum.AnimationPriority.Action3
-        or priority == Enum.AnimationPriority.Action4
-end
-
-local function AP_GoodTarget(player)
-    if not AutoParry.KillerOnly then return true end
-
-    local teamName = player.Team and player.Team.Name:lower() or ""
-
-    if teamName:find("surv") then return false end
-    if player.Team and LP.Team and player.Team == LP.Team then
-        return false
-    end
-
+    if not (priority == Enum.AnimationPriority.Action or priority == Enum.AnimationPriority.Action2) then return false end
+    local n = track.Name:lower()
+    if n:find("aim") or n:find("shoot") or n:find("throw") or n:find("spear") or n:find("gun") or n:find("range") or n:find("cast") then return false end
+    if n:find("pallet") or n:find("break") or n:find("vault") or n:find("stun") then return false end
     return true
 end
 
-local function AP_Start()
-    if AutoParry.Connection then
-        AutoParry.Connection:Disconnect()
+local function AP_Press()
+    if not AutoParryEnabled then return end
+    local char = LP.Character
+    if not char then return end
+    local remotes = game:GetService("ReplicatedStorage"):FindFirstChild("Remotes")
+    local items = remotes and remotes:FindFirstChild("Items")
+    local dagger = items and items:FindFirstChild("Parrying Dagger")
+    local parryEvent = dagger and dagger:FindFirstChild("parry")
+    if parryEvent then pcall(function() parryEvent:FireServer(char) end) return end
+    
+    local tool = char:FindFirstChildOfClass("Tool")
+    if tool and tool.Name:lower():find("parry") then
+        pcall(function() tool:Activate() end)
+        return 
     end
 
-    AutoParry.Connection = RunService.Heartbeat:Connect(function()
-        if not AutoParry.Enabled then return end
+    pcall(function()
+        game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.F, false, game)
+        task.wait(0.01)
+        game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.F, false, game)
+    end)
+end
 
-        local character = LP.Character
-        local root = character and character:FindFirstChild("HumanoidRootPart")
+local function AP_Start()
+    if AutoParry.Conn then AutoParry.Conn:Disconnect() end
+    AutoParry.Conn = RunService.Heartbeat:Connect(function()
+        if not AutoParryEnabled or AutoParry.Pending then return end
+        local char = LP.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
         if not root then return end
-
-        for _, player in ipairs(Players:GetPlayers()) do
-            if player ~= LP and player.Character then
-                local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
-                local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
-
-                if targetRoot and humanoid then
-                    for _, track in ipairs(humanoid:GetPlayingAnimationTracks()) do
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LP and p.Character and p.Team and p.Team.Name:lower():find("killer") then
+                local tr = p.Character:FindFirstChild("HumanoidRootPart")
+                local hum = p.Character:FindFirstChildOfClass("Humanoid")
+                if tr and hum and (tr.Position - root.Position).Magnitude <= AutoParry.Range then
+                    for _, track in ipairs(hum:GetPlayingAnimationTracks()) do
                         if not AutoParry.Seen[track] then
                             AutoParry.Seen[track] = true
-
-                            if track.TimePosition <= 0.3
-                                and AP_IsAttack(track)
-                                and AP_GoodTarget(player)
-                                and (targetRoot.Position - root.Position).Magnitude <= AutoParry.Range
-                                and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown then
-
-                                local facing = true
-
-                                if AutoParry.Facing then
-                                    local direction = root.Position - targetRoot.Position
-                                    direction = Vector3.new(direction.X, 0, direction.Z)
-
-                                    if direction.Magnitude > 0.1 then
-                                        facing = targetRoot.CFrame.LookVector:Dot(direction.Unit) > 0.35
-                                    end
-                                end
-
-                                if facing then
-                                    AutoParry.LastParry = os.clock()
-                                    task.delay(AutoParry.Delay, AP_Press)
-                                end
+                            if track.TimePosition <= 0.2 and AP_IsAttack(track) and os.clock() - AutoParry.LastParry >= AutoParry.Cooldown then
+                                AutoParry.LastParry = os.clock(); AutoParry.Pending = true
+                                task.delay(AutoParry.Delay, function() AP_Press(); AutoParry.Pending = false end)
                             end
                         end
                     end
@@ -518,787 +172,1392 @@ local function AP_Start()
     end)
 end
 
-local function AP_Stop()
-    AutoParry.Enabled = false
-
-    if AutoParry.Connection then
-        AutoParry.Connection:Disconnect()
-        AutoParry.Connection = nil
-    end
-end
-
--- HANX HUB ANTI FOG
-local AntiFog = false
-local FogBackup = {}
-
-local function SetAntiFog(state)
-    AntiFog = state
-
-    if state then
-        FogBackup.FogStart = Lighting.FogStart
-        FogBackup.FogEnd = Lighting.FogEnd
-
-        Lighting.FogStart = 0
-        Lighting.FogEnd = 1000000
-
-        for _, v in ipairs(Lighting:GetDescendants()) do
-            if v:IsA("Atmosphere") then
-                if FogBackup[v] == nil then
-                    FogBackup[v] = {
-                        Density = v.Density,
-                        Haze = v.Haze,
-                        Glare = v.Glare
-                    }
+-- ============================================================
+-- AUTO SKILLCHECK GENERATOR (FIXED)
+-- ============================================================
+_G.HanxAutoGen = false
+task.spawn(function()
+    local remotes = game:GetService("ReplicatedStorage"):WaitForChild("Remotes")
+    local healing = remotes:WaitForChild("Healing")
+    while task.wait(0.005) do
+        if _G.HanxAutoGen then
+            local char = LP.Character
+            if char then
+                local gui = LP.PlayerGui:FindFirstChild("SkillCheckPromptGui") or game:GetService("CoreGui"):FindFirstChild("SkillCheckPromptGui")
+                if gui then
+                    local check = gui:FindFirstChild("Check")
+                    if check and check.Visible then
+                        local line = check:FindFirstChild("Line")
+                        local goal = check:FindFirstChild("Goal")
+                        if line and goal then
+                            line.Rotation = goal.Rotation
+                            pcall(function()
+                                game:GetService("VirtualInputManager"):SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                                task.wait(0.02)
+                                game:GetService("VirtualInputManager"):SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                            end)
+                        end
+                    end
                 end
-
-                v.Density = 0
-                v.Haze = 0
-                v.Glare = 0
             end
         end
-    else
-        if FogBackup.FogStart then
-            Lighting.FogStart = FogBackup.FogStart
-            Lighting.FogEnd = FogBackup.FogEnd
-        end
-
-        for obj, data in pairs(FogBackup) do
-            if typeof(obj) == "Instance" and obj.Parent then
-                obj.Density = data.Density
-                obj.Haze = data.Haze
-                obj.Glare = data.Glare
-            end
-        end
-
-        table.clear(FogBackup)
     end
-end
+end)
 
--- ============================================================
--- 6. UI FRAMEWORK
--- ============================================================
-local old = CoreGui:FindFirstChild("HANX_HUB_UI") if old then old:Destroy() end
-local oldF = CoreGui:FindFirstChild("HANX_HUB_Logo") if oldF then oldF:Destroy() end
-local oldS = CoreGui:FindFirstChild("HANX_HUB_Splash") if oldS then oldS:Destroy() end
-local oldW = CoreGui:FindFirstChild("HANX_Watermark") if oldW then oldW:Destroy() end
+local KEY_URL = "https://pastebin.com/raw/SRq2TniP"
+local AD_LINK = "https:///move2link.com/hanxhub"
+local YOUTUBE_LINK = "https://youtube.com/@hannxhub"
+local SAWERIA_LINK = "https://saweria.co/hanxhub"
+local DISCORD_LINK = "https://discord.gg/hanxhub"
 
-local Theme = {
-    Bg = Color3.fromRGB(12, 12, 16), Sidebar = Color3.fromRGB(18, 18, 24), Card = Color3.fromRGB(24, 24, 32),
-    CardHover = Color3.fromRGB(32, 32, 42), Text = Color3.fromRGB(255, 255, 255), SubText = Color3.fromRGB(150, 150, 160),
-    Neon = Color3.fromRGB(180, 80, 255), ToggleOff = Color3.fromRGB(45, 45, 55)
+local HanxUI = {}
+HanxUI.__index = HanxUI
+
+HanxUI.Theme = {
+    Bg = Color3.fromRGB(12, 12, 14),
+    Sidebar = Color3.fromRGB(18, 18, 20),
+    Card = Color3.fromRGB(22, 22, 26),
+    Accent = Color3.fromRGB(200, 30, 30),
+    Text = Color3.fromRGB(240, 240, 240),
+    TextDim = Color3.fromRGB(140, 140, 150),
+    ToggleBg = Color3.fromRGB(45, 45, 50),
+    Font = Enum.Font.GothamMedium,
+    FontBold = Enum.Font.GothamBold,
+    FontBlack = Enum.Font.GothamBlack
 }
 
-local function corner(inst, r) local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r); c.Parent = inst end
-local function addStroke(inst, color, thickness, transparency) local s = Instance.new("UIStroke"); s.Color = color; s.Thickness = thickness or 1; s.Transparency = transparency or 0; s.Parent = inst return s end
-
-local Screen = Instance.new("ScreenGui"); Screen.Name = "HANX_HUB_UI"; Screen.ResetOnSpawn = false; Screen.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; Screen.IgnoreGuiInset = true; Screen.Enabled = false; Screen.Parent = CoreGui
-local Window = Instance.new("Frame"); Window.Size = UDim2.fromOffset(580, 420); Window.Position = UDim2.new(0.5, -290, 0.5, -210); Window.BackgroundColor3 = Theme.Bg; Window.BorderSizePixel = 0; Window.Active = true; Window.ClipsDescendants = true; Window.Parent = Screen; corner(Window, 12); addStroke(Window, Theme.Neon, 1.5, 0.5)
-local TopBar = Instance.new("Frame"); TopBar.Size = UDim2.new(1, 0, 0, 45); TopBar.BackgroundTransparency = 1; TopBar.Parent = Window
-local Title = Instance.new("TextLabel"); Title.Size = UDim2.new(1, -100, 1, 0); Title.Position = UDim2.fromOffset(20, 0); Title.BackgroundTransparency = 1; Title.Text = "HANX HUB"; Title.TextColor3 = Theme.Neon; Title.Font = Enum.Font.GothamBlack; Title.TextSize = 16; Title.TextXAlignment = Enum.TextXAlignment.Left; Title.Parent = TopBar
-local Subtitle = Instance.new("TextLabel"); Subtitle.Size = UDim2.new(1, -100, 1, 0); Subtitle.Position = UDim2.fromOffset(110, 0); Subtitle.BackgroundTransparency = 1; Subtitle.Text = "| Violence District"; Subtitle.TextColor3 = Theme.SubText; Subtitle.Font = Enum.Font.GothamMedium; Subtitle.TextSize = 12; Subtitle.TextXAlignment = Enum.TextXAlignment.Left; Subtitle.Parent = TopBar
-
-local dragging, dragStart, startPos
-TopBar.InputBegan:Connect(function(input) if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then dragging = true; dragStart = input.Position; startPos = Window.Position; input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end) end end)
-UserInputService.InputChanged:Connect(function(input) if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then local delta = input.Position - dragStart; Window.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y) end end)
-
-local FloatGui = Instance.new("ScreenGui"); FloatGui.Name = "HANX_HUB_Logo"; FloatGui.ResetOnSpawn = false; FloatGui.Parent = CoreGui
-local LogoBtn = Instance.new("TextButton"); LogoBtn.Size = UDim2.fromOffset(55, 55); LogoBtn.Position = UDim2.new(0, 20, 0.5, -27); LogoBtn.BackgroundColor3 = Theme.Card; LogoBtn.Text = "H"; LogoBtn.TextColor3 = Theme.Neon; LogoBtn.Font = Enum.Font.GothamBlack; LogoBtn.TextSize = 24; LogoBtn.BorderSizePixel = 0; LogoBtn.Visible = false; LogoBtn.Active = true; LogoBtn.Parent = FloatGui; corner(LogoBtn, 27); addStroke(LogoBtn, Theme.Neon, 2, 0)
-local lDrag, lStart, lPos
-LogoBtn.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then lDrag = true; lStart = i.Position; lPos = LogoBtn.Position; i.Changed:Connect(function() if i.UserInputState == Enum.UserInputState.End then lDrag = false end end) end end)
-UserInputService.InputChanged:Connect(function(i) if lDrag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then local d = i.Position - lStart; LogoBtn.Position = UDim2.new(lPos.X.Scale, lPos.X.Offset + d.X, lPos.Y.Scale, lPos.Y.Offset + d.Y) end end)
-
-local CloseBtn = Instance.new("TextButton"); CloseBtn.Size = UDim2.fromOffset(24, 24); CloseBtn.Position = UDim2.new(1, -35, 0, 10); CloseBtn.BackgroundTransparency = 1; CloseBtn.Text = "X"; CloseBtn.TextColor3 = Theme.SubText; CloseBtn.Font = Enum.Font.GothamBold; CloseBtn.TextSize = 14; CloseBtn.Parent = TopBar
-CloseBtn.MouseButton1Click:Connect(function() dragging = false; lDrag = false; Screen:Remove(); FloatGui:Remove(); local w = CoreGui:FindFirstChild("HANX_Watermark") if w then w:Destroy() end end)
-CloseBtn.MouseEnter:Connect(function() TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Color3.fromRGB(255, 80, 80)}):Play() end)
-CloseBtn.MouseLeave:Connect(function() TweenService:Create(CloseBtn, TweenInfo.new(0.2), {TextColor3 = Theme.SubText}):Play() end)
-
-local MinBtn = Instance.new("TextButton"); MinBtn.Size = UDim2.fromOffset(24, 24); MinBtn.Position = UDim2.new(1, -65, 0, 10); MinBtn.BackgroundTransparency = 1; MinBtn.Text = "-"; MinBtn.TextColor3 = Theme.SubText; MinBtn.Font = Enum.Font.GothamBold; MinBtn.TextSize = 18; MinBtn.Parent = TopBar
-MinBtn.MouseButton1Click:Connect(function() TweenService:Create(Window, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = UDim2.fromOffset(0,0)}):Play(); task.wait(0.3); Window.Visible = false; LogoBtn.Visible = true end)
-LogoBtn.MouseButton1Click:Connect(function() LogoBtn.Visible = false; Window.Visible = true; TweenService:Create(Window, TweenInfo.new(0.3, Enum.EasingStyle.Back), {Size = UDim2.fromOffset(580, 420)}):Play() end)
-
-local Sidebar = Instance.new("Frame"); Sidebar.Size = UDim2.new(0, 150, 1, -55); Sidebar.Position = UDim2.fromOffset(10, 45); Sidebar.BackgroundColor3 = Theme.Sidebar; Sidebar.BorderSizePixel = 0; Sidebar.Parent = Window; corner(Sidebar, 8); addStroke(Sidebar, Color3.fromRGB(40,40,45), 1, 0)
-local SideLayout = Instance.new("UIListLayout"); SideLayout.SortOrder = Enum.SortOrder.LayoutOrder; SideLayout.Padding = UDim.new(0, 5); SideLayout.Parent = Sidebar
-local SidePad = Instance.new("UIPadding"); SidePad.PaddingTop = UDim.new(0, 12); SidePad.PaddingLeft = UDim.new(0, 8); SidePad.PaddingRight = UDim.new(0, 8); SidePad.Parent = Sidebar
-local Content = Instance.new("Frame"); Content.Size = UDim2.new(1, -175, 1, -55); Content.Position = UDim2.fromOffset(165, 45); Content.BackgroundTransparency = 1; Content.ClipsDescendants = true; Content.Parent = Window
-
-local Tabs, Pages = {}, {}
-local function SelectTab(index) for i, t in ipairs(Tabs) do if i == index then t.BackgroundColor3 = Theme.Card; t.TextColor3 = Theme.Neon; Pages[i].Visible = true else t.BackgroundColor3 = Theme.Sidebar; t.TextColor3 = Theme.SubText; Pages[i].Visible = false end end end
-local function CreateTab(name, icon)
-    local btn = Instance.new("TextButton"); btn.Size = UDim2.new(1, 0, 0, 34); btn.BackgroundColor3 = Theme.Sidebar; btn.Text = "  " .. icon .. "   " .. name; btn.TextColor3 = Theme.SubText; btn.Font = Enum.Font.GothamSemibold; btn.TextSize = 12; btn.TextXAlignment = Enum.TextXAlignment.Left; btn.BorderSizePixel = 0; btn.Parent = Sidebar; corner(btn, 6)
-    btn.MouseEnter:Connect(function() if btn.BackgroundColor3 ~= Theme.Card then TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Theme.Card, TextColor3 = Theme.Text}):Play() end end)
-    btn.MouseLeave:Connect(function() if btn.BackgroundColor3 ~= Theme.Card then TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Theme.Sidebar, TextColor3 = Theme.SubText}):Play() end end)
-    local page = Instance.new("ScrollingFrame"); page.Size = UDim2.fromScale(1, 1); page.BackgroundTransparency = 1; page.BorderSizePixel = 0; page.ScrollBarThickness = 3; page.ScrollBarImageColor3 = Theme.Neon; page.Visible = false; page.Parent = Content
-    local list = Instance.new("UIListLayout"); list.SortOrder = Enum.SortOrder.LayoutOrder; list.Padding = UDim.new(0, 8); list.Parent = page
-    table.insert(Tabs, btn); table.insert(Pages, page)
-    local tabIndex = #Tabs 
-    btn.MouseButton1Click:Connect(function() SelectTab(tabIndex) end)
-    return page
-end
-
-local function CreateMimiwButton(parent, text, defaultColor, note, callback)
-    local hasNote = note and note ~= ""
-    local btn = Instance.new("TextButton"); btn.Size = UDim2.new(1, -10, 0, hasNote and 55 or 40); btn.BackgroundColor3 = defaultColor or Theme.Card; btn.Text = ""; btn.BorderSizePixel = 0; btn.AutoButtonColor = false; btn.Parent = parent; corner(btn, 8); local stroke = addStroke(btn, Theme.Neon, 1, 0.8)
-    local mainText = Instance.new("TextLabel"); mainText.Size = UDim2.new(1, 0, 1, 0); mainText.Position = UDim2.new(0, 0, 0, hasNote and -8 or 0); mainText.BackgroundTransparency = 1; mainText.Text = text; mainText.TextColor3 = Theme.Text; mainText.Font = Enum.Font.GothamBold; mainText.TextSize = 13; mainText.TextXAlignment = Enum.TextXAlignment.Center; mainText.TextYAlignment = Enum.TextYAlignment.Center; mainText.Parent = btn
-    if hasNote then
-        local noteLbl = Instance.new("TextLabel")
-        noteLbl.Size = UDim2.new(1, 0, 0, 14); noteLbl.Position = UDim2.new(0, 0, 1, -18); noteLbl.BackgroundTransparency = 1
-        noteLbl.Text = note; noteLbl.TextColor3 = Theme.SubText; noteLbl.Font = Enum.Font.Gotham; noteLbl.TextSize = 9
-        noteLbl.TextXAlignment = Enum.TextXAlignment.Center; noteLbl.TextYAlignment = Enum.TextYAlignment.Center; noteLbl.Parent = btn
-        btn:SetAttribute("NoteLabel", noteLbl)
+local function create(className, props)
+    local obj = Instance.new(className)
+    for key, value in pairs(props or {}) do
+        obj[key] = value
     end
-    btn.MouseEnter:Connect(function() TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 0}):Play(); TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Theme.CardHover}):Play() end)
-    btn.MouseLeave:Connect(function() TweenService:Create(stroke, TweenInfo.new(0.2), {Transparency = 0.8}):Play(); TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = defaultColor or Theme.Card}):Play() end)
-    btn.MouseButton1Click:Connect(function() if callback then pcall(callback, btn, mainText) end end)
-    return btn, mainText
+    return obj
 end
 
-local function CreateCheckbox(parent, title, default, callback)
-    local card = Instance.new("Frame"); card.Size = UDim2.new(1, -10, 0, 40); card.BackgroundColor3 = Theme.Card; card.BorderSizePixel = 0; card.Parent = parent; corner(card, 8); addStroke(card, Color3.fromRGB(50, 50, 60), 1, 0)
-    local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.new(1, -50, 1, 0); lbl.Position = UDim2.fromOffset(15, 0); lbl.BackgroundTransparency = 1; lbl.Text = title; lbl.TextColor3 = Theme.Text; lbl.Font = Enum.Font.GothamMedium; lbl.TextSize = 13; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Parent = card
-    local tBg = Instance.new("Frame"); tBg.Size = UDim2.fromOffset(40, 20); tBg.Position = UDim2.new(1, -50, 0.5, -10); tBg.BackgroundColor3 = default and Theme.Neon or Theme.ToggleOff; tBg.BorderSizePixel = 0; tBg.Parent = card; corner(tBg, 10)
-    local tStroke = addStroke(tBg, Theme.Neon, 1, default and 0.5 or 1)
-    local dot = Instance.new("Frame"); dot.Size = UDim2.fromOffset(16, 16); dot.Position = default and UDim2.fromOffset(22, 2) or UDim2.fromOffset(2, 2); dot.BackgroundColor3 = Color3.new(1,1,1); dot.Parent = tBg; corner(dot, 8)
-    local btn = Instance.new("TextButton"); btn.Size = UDim2.new(1, 0, 1, 0); btn.BackgroundTransparency = 1; btn.Text = ""; btn.Parent = tBg
-    local state = default
-    btn.MouseButton1Click:Connect(function() 
-        state = not state
-        if state then 
-            TweenService:Create(tBg, TweenInfo.new(0.2), {BackgroundColor3 = Theme.Neon}):Play()
-            TweenService:Create(dot, TweenInfo.new(0.2), {Position = UDim2.fromOffset(22, 2)}):Play()
-            TweenService:Create(tStroke, TweenInfo.new(0.2), {Transparency = 0.5}):Play()
-        else 
-            TweenService:Create(tBg, TweenInfo.new(0.2), {BackgroundColor3 = Theme.ToggleOff}):Play()
-            TweenService:Create(dot, TweenInfo.new(0.2), {Position = UDim2.fromOffset(2, 2)}):Play()
-            TweenService:Create(tStroke, TweenInfo.new(0.2), {Transparency = 1}):Play()
+local function round(obj, radius)
+    create("UICorner", {
+        CornerRadius = UDim.new(0, radius or 6),
+        Parent = obj
+    })
+end
+
+local function dragify(frame, handle)
+    local dragging = false
+    local dragInput
+    local dragStart
+    local startPos
+
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
         end
-        if callback then pcall(callback, state) end 
+    end)
+
+    handle.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragInput = input
+        end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale,
+                startPos.X.Offset + delta.X,
+                startPos.Y.Scale,
+                startPos.Y.Offset + delta.Y
+            )
+        end
     end)
 end
 
-local function CreateLabel(parent, text)
-    local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.new(1, -10, 0, 30); lbl.BackgroundTransparency = 1; lbl.Text = text; lbl.TextColor3 = Theme.Neon; lbl.Font = Enum.Font.GothamBold; lbl.TextSize = 14; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Parent = parent
-end
+function HanxUI.new(title, subtitle)
+    local playerGui = LP:WaitForChild("PlayerGui")
+    local oldGui = playerGui:FindFirstChild("HanxUI_Main")
+    if oldGui then oldGui:Destroy() end
 
--- ============================================================
--- BUILD TABS
--- ============================================================
-local HomePage = CreateTab("Home", "H")
-local SurvivorPage = CreateTab("Survivor", "S")
-local KillerPage = CreateTab("Killer", "K")
-local PvPPage = CreateTab("Features", "F")
-local UtilPage = CreateTab("teleport", "T")
-local UtilityPage = CreateTab("Utility", "U")
-local SocialPage = CreateTab("Social Media", "M")
+    local window = setmetatable({}, HanxUI)
+    window.Tabs = {}
 
--- ISI TAB HOME
-local ProfileCard = Instance.new("Frame"); ProfileCard.Size = UDim2.new(1, -10, 0, 80); ProfileCard.BackgroundColor3 = Theme.Card; ProfileCard.BorderSizePixel = 0; ProfileCard.Parent = HomePage; corner(ProfileCard, 8); addStroke(ProfileCard, Theme.Neon, 1, 0.8)
-local Avatar = Instance.new("ImageLabel"); Avatar.Size = UDim2.fromOffset(60, 60); Avatar.Position = UDim2.fromOffset(10, 10); Avatar.BackgroundColor3 = Theme.Sidebar; Avatar.Image = "rbxthumb://type=AvatarHeadShot&id="..LP.UserId.."&w=150&h=150"; Avatar.Parent = ProfileCard; corner(Avatar, 30)
-local NameLbl = Instance.new("TextLabel"); NameLbl.Size = UDim2.new(1, -80, 0, 20); NameLbl.Position = UDim2.fromOffset(80, 15); NameLbl.BackgroundTransparency = 1; NameLbl.Text = LP.DisplayName; NameLbl.TextColor3 = Theme.Text; NameLbl.Font = Enum.Font.GothamBold; NameLbl.TextSize = 16; NameLbl.TextXAlignment = Enum.TextXAlignment.Left; NameLbl.Parent = ProfileCard
-local StatusLbl = Instance.new("TextLabel"); StatusLbl.Size = UDim2.new(1, -80, 0, 20); StatusLbl.Position = UDim2.fromOffset(80, 40); StatusLbl.BackgroundTransparency = 1; StatusLbl.Text = "Status: Free User"; StatusLbl.TextColor3 = Theme.Neon; StatusLbl.Font = Enum.Font.Gotham; StatusLbl.TextSize = 12; StatusLbl.TextXAlignment = Enum.TextXAlignment.Left; StatusLbl.Parent = ProfileCard
+    local gui = create("ScreenGui", {
+        Name = "HanxUI_Main",
+        ResetOnSpawn = false,
+        ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+        Parent = playerGui
+    })
 
-CreateLabel(HomePage, "Server Information")
-local StatsCard = Instance.new("Frame"); StatsCard.Size = UDim2.new(1, -10, 0, 160); StatsCard.BackgroundColor3 = Theme.Card; StatsCard.BorderSizePixel = 0; StatsCard.Parent = HomePage; corner(StatsCard, 8); addStroke(StatsCard, Color3.fromRGB(50, 50, 60), 1, 0)
-local function CreateStatRow(parent, icon, labelText, defaultVal, yOffset)
-    local row = Instance.new("Frame"); row.Size = UDim2.new(1, 0, 0, 30); row.Position = UDim2.fromOffset(0, yOffset); row.BackgroundTransparency = 1; row.Parent = parent
-    local ico = Instance.new("TextLabel"); ico.Size = UDim2.fromOffset(30, 30); ico.Position = UDim2.fromOffset(10, 0); ico.BackgroundTransparency = 1; ico.Text = icon; ico.TextColor3 = Theme.Neon; ico.Font = Enum.Font.GothamBold; ico.TextSize = 14; ico.Parent = row
-    local lbl = Instance.new("TextLabel"); lbl.Size = UDim2.new(1, -100, 1, 0); lbl.Position = UDim2.fromOffset(40, 0); lbl.BackgroundTransparency = 1; lbl.Text = labelText; lbl.TextColor3 = Theme.SubText; lbl.Font = Enum.Font.Gotham; lbl.TextSize = 12; lbl.TextXAlignment = Enum.TextXAlignment.Left; lbl.Parent = row
-    local val = Instance.new("TextLabel"); val.Name = "Value"; val.Size = UDim2.fromOffset(60, 30); val.Position = UDim2.new(1, -70, 0, 0); val.BackgroundTransparency = 1; val.Text = defaultVal; val.TextColor3 = Theme.Text; val.Font = Enum.Font.GothamBold; val.TextSize = 13; val.TextXAlignment = Enum.TextXAlignment.Right; val.Parent = row
-    return val
-end
-local playerCountVal = CreateStatRow(StatsCard, "P", "Players Online", "0", 10)
-local pingVal = CreateStatRow(StatsCard, "N", "Ping", "0 ms", 45)
-local mapVal = CreateStatRow(StatsCard, "M", "Current Map", "Loading...", 80)
-local uptimeVal = CreateStatRow(StatsCard, "T", "Time Played", "00:00:00", 115)
-local startTime = tick()
-task.spawn(function()
-    while task.wait(2) do
-        pcall(function()
-            playerCountVal.Text = tostring(#Players:GetPlayers()) .. "/" .. tostring(Players.MaxPlayers)
-            local ping = math.floor(LP:GetNetworkPing() * 1000)
-            pingVal.Text = tostring(ping) .. " ms"
-            local mapFolder = workspace:FindFirstChild("Map")
-            local mapName = (mapFolder and mapFolder:GetChildren()[1]) and mapFolder:GetChildren()[1].Name or "Unknown"
-            mapVal.Text = mapName
-            local elapsed = tick() - startTime
-            uptimeVal.Text = string.format("%02d:%02d:%02d", math.floor(elapsed / 3600), math.floor((elapsed % 3600) / 60), math.floor(elapsed % 60))
-        end)
+    create("TextLabel", {
+        Size = UDim2.new(0, 200, 0, 30),
+        Position = UDim2.new(0, 20, 0, 20),
+        BackgroundTransparency = 1,
+        Text = "HANX HUB",
+        TextColor3 = HanxUI.Theme.Accent,
+        Font = HanxUI.Theme.FontBlack,
+        TextSize = 20,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = gui
+    })
+
+    local main = create("Frame", {
+        Name = "Main",
+        Size = UDim2.new(0, 680, 0, 460),
+        Position = UDim2.new(0.5, -340, 0.5, -230),
+        BackgroundColor3 = HanxUI.Theme.Bg,
+        BorderSizePixel = 0,
+        Parent = gui
+    })
+    round(main, 12)
+
+    create("UIStroke", {
+        Color = HanxUI.Theme.Accent,
+        Thickness = 1.5,
+        Transparency = 0.5,
+        Parent = main
+    })
+
+    local header = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 60),
+        BackgroundTransparency = 1,
+        Parent = main,
+        ZIndex = 5
+    })
+
+    local dragArea = create("TextButton", {
+        Size = UDim2.new(1, -100, 1, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        Parent = header,
+        ZIndex = 5
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -60, 0, 30),
+        Position = UDim2.new(0, 20, 0, 12),
+        BackgroundTransparency = 1,
+        Text = title or "HANX HUB",
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBlack,
+        TextSize = 24,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = header,
+        ZIndex = 5
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -60, 0, 15),
+        Position = UDim2.new(0, 20, 0, 38),
+        BackgroundTransparency = 1,
+        Text = subtitle or "",
+        TextColor3 = HanxUI.Theme.Accent,
+        Font = HanxUI.Theme.Font,
+        TextSize = 11,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = header,
+        ZIndex = 5
+    })
+
+    local btnContainer = create("Frame", {
+        Size = UDim2.new(0, 60, 0, 30),
+        Position = UDim2.new(1, -65, 0, 15),
+        BackgroundTransparency = 1,
+        Parent = header,
+        ZIndex = 10
+    })
+
+    local minBtn = create("TextButton", {
+        Size = UDim2.new(0, 25, 0, 25),
+        BackgroundTransparency = 1,
+        Text = "—",
+        TextColor3 = HanxUI.Theme.TextDim,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 16,
+        Parent = btnContainer,
+        ZIndex = 10
+    })
+
+    local closeBtn = create("TextButton", {
+        Size = UDim2.new(0, 25, 0, 25),
+        Position = UDim2.new(0, 30, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "×",
+        TextColor3 = HanxUI.Theme.TextDim,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 20,
+        Parent = btnContainer,
+        ZIndex = 10
+    })
+
+    local tray = create("TextButton", {
+        Size = UDim2.new(0, 220, 0, 45),
+        Position = UDim2.new(0.5, -110, 0, 20),
+        BackgroundColor3 = HanxUI.Theme.Card,
+        Text = "HANX HUB  |  Click to open",
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 12,
+        Visible = false,
+        Parent = gui,
+        ZIndex = 10
+    })
+    round(tray, 25)
+    create("UIStroke", {
+        Color = HanxUI.Theme.Accent,
+        Thickness = 1,
+        Parent = tray
+    })
+    dragify(tray, tray)
+
+    local minimized = false
+    local function toggleMinimize()
+        minimized = not minimized
+        main.Visible = not minimized
+        tray.Visible = minimized
     end
-end)
 
--- ISI TAB FEATURES (ESP)
-CreateLabel(PvPPage, "ESP Settings")
-CreateCheckbox(PvPPage, "Survivor ESP", false, function(s) ESP_Status.Survivor = s end)
-CreateCheckbox(PvPPage, "Killer ESP", false, function(s) ESP_Status.Killer = s end)
-CreateCheckbox(PvPPage, "Pallet ESP", false, function(s) ESP_Status.Pallets = s end)
-CreateCheckbox(PvPPage, "Window ESP", false, function(s) ESP_Status.Windows = s end)
-CreateCheckbox(PvPPage, "Generator ESP", false, function(s) ESP_Status.Gens = s end)
-CreateCheckbox(PvPPage, "Trap ESP", false, function(s) ESP_Status.Traps = s end)
-CreateCheckbox(PvPPage, "Pumpkin ESP", false, function(s) ESP_Status.Pumpkins = s end)
+    minBtn.MouseButton1Click:Connect(toggleMinimize)
+    tray.MouseButton1Click:Connect(toggleMinimize)
+    closeBtn.MouseButton1Click:Connect(function()
+        gui:Destroy()
+    end)
 
-CreateMimiwButton(PvPPage, "FORCE REFRESH ESP", Theme.Card, "Tekan ini kalau ESP ilang", function(btn, txt)
-    txt.Text = "Scanning Map..."
-    ClearESP()
-    task.wait(0.5)
-    pcall(UpdateESP)
-    task.wait(1)
-    txt.Text = "FORCE REFRESH ESP"
-    print("ESP Map di-refresh!")
-end)
+    local sidebar = create("Frame", {
+        Name = "Sidebar",
+        Size = UDim2.new(0, 135, 1, -70),
+        Position = UDim2.new(0, 10, 0, 65),
+        BackgroundColor3 = HanxUI.Theme.Sidebar,
+        BorderSizePixel = 0,
+        ZIndex = 5,
+        Parent = main
+    })
+    round(sidebar, 10)
+    create("UIStroke", {
+        Color = Color3.fromRGB(40, 40, 45),
+        Thickness = 1,
+        Parent = sidebar
+    })
+    create("UIListLayout", {
+        Padding = UDim.new(0, 10),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        HorizontalAlignment = Enum.HorizontalAlignment.Center,
+        Parent = sidebar
+    })
+    create("UIPadding", {
+        PaddingTop = UDim.new(0, 20),
+        PaddingLeft = UDim.new(0, 6),
+        PaddingRight = UDim.new(0, 6),
+        Parent = sidebar
+    })
 
--- ISI TAB SURVIVOR
+    local content = create("Frame", {
+        Name = "Content",
+        Size = UDim2.new(1, -165, 1, -80),
+        Position = UDim2.new(0, 155, 0, 65),
+        BackgroundTransparency = 1,
+        ZIndex = 1,
+        Parent = main
+    })
 
-CreateLabel(SurvivorPage, "Movement")
+    dragify(main, dragArea)
 
-CreateMimiwButton(
-    SurvivorPage,
-    "Fast Vault: OFF",
-    Theme.Card,
-    "Experimental fast vault",
-    function(btn, txt)
-        txt.Text = "Fast Vault: ON"
-        txt.TextColor3 = Theme.Neon
+    window.Gui = gui
+    window.Main = main
 
-        print("[HANX HUB] Fast Vault enabled")
+    function window:SelectTab(tab)
+        for _, item in ipairs(self.Tabs) do
+            item.Frame.Visible = false
+            TweenService:Create(item.Btn, TweenInfo.new(0.15), {
+                BackgroundColor3 = HanxUI.Theme.Sidebar,
+                TextColor3 = HanxUI.Theme.TextDim
+            }):Play()
+        end
+
+        tab.Frame.Visible = true
+        TweenService:Create(tab.Btn, TweenInfo.new(0.15), {
+            BackgroundColor3 = HanxUI.Theme.Accent,
+            TextColor3 = HanxUI.Theme.Text
+        }):Play()
+        self.ActiveTab = tab
     end
-)
 
-CreateLabel(SurvivorPage, "Auto SkillCheck")
-local scBtn, scTxt = CreateMimiwButton(SurvivorPage, "Auto Skill Check: OFF", Theme.ToggleOff, "Mode: Normal", function(btn, txt)
-    _G.Ox.Auto.SkillCheck = not _G.Ox.Auto.SkillCheck
-    txt.Text = "Auto Skill Check: " .. (_G.Ox.Auto.SkillCheck and "ON" or "OFF")
-    btn.BackgroundColor3 = _G.Ox.Auto.SkillCheck and Theme.Neon or Theme.ToggleOff
-    txt.TextColor3 = _G.Ox.Auto.SkillCheck and Theme.Bg or Theme.Text
-    if _G.Ox.Auto.SkillCheck then fn7() else if _G.Ox.Connections.SkillHeartbeat then _G.Ox.Connections.SkillHeartbeat:Disconnect(); _G.Ox.Connections.SkillHeartbeat = nil end end
-end)
+    function window:AddTab(iconText, name)
+        local btn = create("TextButton", {
+            Size = UDim2.new(1, 0, 0, 40),
+            BackgroundColor3 = HanxUI.Theme.Sidebar,
+            Text = tostring(iconText) .. "   " .. string.upper(name),
+            TextColor3 = HanxUI.Theme.TextDim,
+            Font = HanxUI.Theme.FontBold,
+            TextSize = 12,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            AutoButtonColor = false,
+            ZIndex = 6,
+            Parent = sidebar
+        })
+        round(btn, 8)
+        create("UIPadding", {
+            PaddingLeft = UDim.new(0, 10),
+            Parent = btn
+        })
 
-CreateLabel(SurvivorPage, "Auto Drop Pallet")
-CreateMimiwButton(SurvivorPage, "Auto Drop Pallet: DISABLED", Theme.ToggleOff, "Fitur dinonaktifkan permanen", function(btn, txt)
-    -- Gak ada fungsi, cuma biar keliatan aja
-    txt.Text = "Auto Drop Pallet: DISABLED"
-    btn.BackgroundColor3 = Theme.ToggleOff
-    txt.TextColor3 = Theme.SubText
-end)
---CreateMimiwButton(SurvivorPage, "Pallet Trigger Distance: 10", Theme.Card, "Jarak deteksi killer", function(btn, txt)
-   -- AutoPallet.Distance = AutoPallet.Distance + 2
-  --  if AutoPallet.Distance > 20 then AutoPallet.Distance = 6 end
-  --  txt.Text = "Pallet Trigger Distance: " .. AutoPallet.Distance
---end)
-
--- ISI TAB KILLER
-CreateLabel(KillerPage, "Killer Aimbot")
-CreateMimiwButton(KillerPage, "Killer Aimbot: OFF", Theme.ToggleOff, "Aim ke survivor", function(btn, txt)
-    KillerConfig.Enabled = not KillerConfig.Enabled
-    if KillerConfig.Enabled then KA_StartLoop(); txt.Text = "Killer Aimbot: ON"; btn.BackgroundColor3 = Theme.Neon; txt.TextColor3 = Theme.Bg
-    else if not KillerConfig.AutoM1 then KA_StopLoop() end; txt.Text = "Killer Aimbot: OFF"; btn.BackgroundColor3 = Theme.ToggleOff; txt.TextColor3 = Theme.Text end
-end)
-CreateMimiwButton(KillerPage, "Max Distance: 12", Theme.Card, "Range target aimbot", function(btn, txt)
-    KillerConfig.MaxDist = KillerConfig.MaxDist + 2
-    if KillerConfig.MaxDist > 30 then KillerConfig.MaxDist = 6 end
-    txt.Text = "Max Distance: " .. KillerConfig.MaxDist
-end)
-CreateLabel(KillerPage, "Auto Attack")
-CreateMimiwButton(KillerPage, "Auto Attack: OFF", Theme.ToggleOff, "Serang otomatis", function(btn, txt)
-    KillerConfig.AutoM1 = not KillerConfig.AutoM1
-    if KillerConfig.AutoM1 then
-        if not KillerConfig.Enabled then KillerConfig.Enabled = true end
-        KA_StartLoop(); txt.Text = "Auto Attack: ON"; btn.BackgroundColor3 = Theme.Neon; txt.TextColor3 = Theme.Bg
-    else
-        if not KillerConfig.Enabled then KA_StopLoop() end; txt.Text = "Auto M1: OFF"; btn.BackgroundColor3 = Theme.ToggleOff; txt.TextColor3 = Theme.Text
-    end
-end)
-
--- ISI TAB PLAYER (TELEPORT)
-CreateLabel(UtilPage, "Player Teleport")
-local selectBtn, selectTxt = CreateMimiwButton(UtilPage, "Select Player...", Theme.Card, "Click to view player list", function(btn, txt)
-    local names = GetPlayerNames()
-    if _G.HANX_TempList then _G.HANX_TempList:Destroy() end
-    local listFrame = Instance.new("Frame"); listFrame.Name = "TempList"; listFrame.Size = UDim2.new(1, -10, 0, #names * 35); listFrame.BackgroundTransparency = 1; listFrame.Parent = UtilPage; _G.HANX_TempList = listFrame
-    local uiList = Instance.new("UIListLayout"); uiList.Padding = UDim.new(0, 5); uiList.Parent = listFrame
-    for _, name in ipairs(names) do
-        local pBtn = Instance.new("TextButton"); pBtn.Size = UDim2.new(1, 0, 0, 30); pBtn.BackgroundColor3 = Theme.Sidebar; pBtn.Text = name; pBtn.TextColor3 = Theme.Text; pBtn.Font = Enum.Font.Gotham; pBtn.TextSize = 12; pBtn.Parent = listFrame; corner(pBtn, 6)
-        pBtn.MouseButton1Click:Connect(function() selectedPlayer = name; txt.Text = "Selected: " .. name; txt.TextColor3 = Theme.Neon; listFrame:Destroy(); _G.HANX_TempList = nil end)
-    end
-end)
-
-CreateMimiwButton(UtilPage, "Teleport to Player", Theme.Card, "Teleport instantly", function(btn, txt)
-    if selectedPlayer then TeleportToPlayer(selectedPlayer); txt.Text = "Teleported!"; task.wait(1.5); txt.Text = "Teleport to Player"
-    else txt.Text = "Select a player first!"; task.wait(1.5); txt.Text = "Teleport to Player" end
-end)
-
-local followBtn, followTxt = CreateMimiwButton(UtilPage, "Follow Player: OFF", Theme.ToggleOff, "Stalk the selected player", function(btn, txt)
-    if not selectedPlayer then txt.Text = "Select a player first!"; task.wait(1.5); txt.Text = "Follow Player: OFF"; return end
-    isFollowing = not isFollowing
-    if isFollowing then
-        txt.Text = "Follow Player: ON"; btn.BackgroundColor3 = Theme.Neon; txt.TextColor3 = Theme.Bg
-        if followThread then task.cancel(followThread) end
-        followThread = task.spawn(function()
-            while isFollowing do
-                local target = Players:FindFirstChild(selectedPlayer)
-                if target and target.Character then
-                    local targetRoot = target.Character:FindFirstChild("HumanoidRootPart")
-                    local myRoot = LP.Character and LP.Character:FindFirstChild("HumanoidRootPart")
-                    if targetRoot and myRoot then local dist = (targetRoot.Position - myRoot.Position).Magnitude; if dist > 5 then myRoot.CFrame = myRoot.CFrame:Lerp(targetRoot.CFrame + Vector3.new(0, 3, 0), 0.2) end end
-                else isFollowing = false; txt.Text = "Follow Player: OFF"; btn.BackgroundColor3 = Theme.ToggleOff; txt.TextColor3 = Theme.Text end
-                task.wait(0.1)
+        btn.MouseEnter:Connect(function()
+            if self.ActiveTab ~= nil and self.ActiveTab.Btn ~= btn then
+                TweenService:Create(btn, TweenInfo.new(0.1), {
+                    BackgroundColor3 = Color3.fromRGB(30, 30, 35)
+                }):Play()
             end
         end)
-    else
-        txt.Text = "Follow Player: OFF"; btn.BackgroundColor3 = Theme.ToggleOff; txt.TextColor3 = Theme.Text
-        if followThread then task.cancel(followThread); followThread = nil end
+
+        btn.MouseLeave:Connect(function()
+            if self.ActiveTab ~= nil and self.ActiveTab.Btn ~= btn then
+                TweenService:Create(btn, TweenInfo.new(0.1), {
+                    BackgroundColor3 = HanxUI.Theme.Sidebar
+                }):Play()
+            end
+        end)
+
+        local tabFrame = create("ScrollingFrame", {
+            Size = UDim2.new(1, 0, 1, 0),
+            BackgroundTransparency = 1,
+            BorderSizePixel = 0,
+            ScrollBarThickness = 3,
+            ScrollBarImageColor3 = HanxUI.Theme.Accent,
+            CanvasSize = UDim2.new(0, 0, 0, 0),
+            AutomaticCanvasSize = Enum.AutomaticSize.Y,
+            Visible = false,
+            ZIndex = 1,
+            Parent = content
+        })
+
+        create("UIPadding", {
+            PaddingTop = UDim.new(0, 5),
+            PaddingBottom = UDim.new(0, 10),
+            PaddingRight = UDim.new(0, 10),
+            Parent = tabFrame
+        })
+
+        create("UIListLayout", {
+            Padding = UDim.new(0, 15),
+            SortOrder = Enum.SortOrder.LayoutOrder,
+            Parent = tabFrame
+        })
+
+        local tabObj = {
+            Frame = tabFrame,
+            Btn = btn,
+            Name = name
+        }
+
+        btn.MouseButton1Click:Connect(function()
+            self:SelectTab(tabObj)
+        end)
+
+        table.insert(self.Tabs, tabObj)
+
+        if #self.Tabs == 1 then
+            self:SelectTab(tabObj)
+        end
+
+        return tabObj
     end
-end)
-CreateMimiwButton(UtilPage, "Reset Character", Theme.Card, "Respawn instantly", function()
-    if LP.Character then local hum = LP.Character:FindFirstChildOfClass("Humanoid"); if hum then hum.Health = 0 end end
-end)
 
--- ============================================================
--- AUTO PARRY UI
--- ============================================================
+    return window
+end
 
-CreateLabel(SurvivorPage, "Auto Parry")
+function HanxUI:AddCard(tab, title)
+    local card = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        BackgroundColor3 = HanxUI.Theme.Card,
+        BorderSizePixel = 0,
+        Parent = tab.Frame
+    })
+    round(card, 8)
+    create("UIStroke", {
+        Color = Color3.fromRGB(40, 40, 45),
+        Thickness = 1,
+        Parent = card
+    })
 
-CreateMimiwButton(
-    SurvivorPage,
-    "Auto Parry: OFF",
-    Theme.ToggleOff,
-    "Detect killer attack automatically",
-    function(btn, txt)
-        AutoParry.Enabled = not AutoParry.Enabled
+    create("UIPadding", {
+        PaddingTop = UDim.new(0, 12),
+        PaddingLeft = UDim.new(0, 15),
+        PaddingRight = UDim.new(0, 15),
+        PaddingBottom = UDim.new(0, 12),
+        Parent = card
+    })
 
-        if AutoParry.Enabled then
-            AP_Start()
+    create("UIListLayout", {
+        Padding = UDim.new(0, 7),
+        SortOrder = Enum.SortOrder.LayoutOrder,
+        Parent = card
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 20),
+        BackgroundTransparency = 1,
+        Text = string.upper(title),
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = card
+    })
+
+    create("Frame", {
+        Size = UDim2.new(1, 0, 0, 1),
+        BackgroundColor3 = HanxUI.Theme.Accent,
+        BackgroundTransparency = 0.5,
+        BorderSizePixel = 0,
+        Parent = card
+    })
+
+    return card
+end
+
+function HanxUI:AddToggle(parentCard, labelText, default, callback)
+    local frame = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 25),
+        BackgroundTransparency = 1,
+        Parent = parentCard
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, -50, 1, 0),
+        BackgroundTransparency = 1,
+        Text = labelText,
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.Font,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = frame
+    })
+
+    local state = default == true
+    local toggle = create("Frame", {
+        Size = UDim2.new(0, 36, 0, 20),
+        Position = UDim2.new(1, -36, 0.5, -10),
+        BackgroundColor3 = state and HanxUI.Theme.Accent or HanxUI.Theme.ToggleBg,
+        Parent = frame
+    })
+    round(toggle, 10)
+
+    local circle = create("Frame", {
+        Size = UDim2.new(0, 16, 0, 16),
+        Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
+        BackgroundColor3 = state and HanxUI.Theme.Text or HanxUI.Theme.TextDim,
+        Parent = toggle
+    })
+    round(circle, 10)
+
+    local hitbox = create("TextButton", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        Parent = frame
+    })
+
+    hitbox.MouseButton1Click:Connect(function()
+        state = not state
+        TweenService:Create(toggle, TweenInfo.new(0.2), {
+            BackgroundColor3 = state and HanxUI.Theme.Accent or HanxUI.Theme.ToggleBg
+        }):Play()
+        TweenService:Create(circle, TweenInfo.new(0.2), {
+            Position = state and UDim2.new(1, -18, 0.5, -8) or UDim2.new(0, 2, 0.5, -8),
+            BackgroundColor3 = state and HanxUI.Theme.Text or HanxUI.Theme.TextDim
+        }):Play()
+
+        if callback then callback(state) end
+    end)
+end
+
+-- SLIDER DIUBAH JADI TEXTBOX (Ketik Angka)
+function HanxUI:AddInput(parentCard, labelText, defaultValue, callback)
+    local frame = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 30),
+        BackgroundTransparency = 1,
+        Parent = parentCard
+    })
+
+    local label = create("TextLabel", {
+        Size = UDim2.new(1, -80, 1, 0),
+        BackgroundTransparency = 1,
+        Text = labelText,
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.Font,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = frame
+    })
+
+    local boxFrame = create("Frame", {
+        Size = UDim2.new(0, 60, 0, 24),
+        Position = UDim2.new(1, -60, 0.5, -12),
+        BackgroundColor3 = HanxUI.Theme.ToggleBg,
+        Parent = frame
+    })
+    round(boxFrame, 6)
+
+    local box = create("TextBox", {
+        Size = UDim2.new(1, 0, 1, 0),
+        BackgroundTransparency = 1,
+        Text = tostring(defaultValue),
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Center,
+        ClearTextOnFocus = false,
+        Parent = boxFrame
+    })
+
+    box.FocusLost:Connect(function()
+        local num = tonumber(box.Text)
+        if num then
+            if callback then callback(num) end
         else
-            AP_Stop()
+            box.Text = tostring(defaultValue) -- Balikin ke angka awal kalau bukan angka
+        end
+    end)
+end
+
+function HanxUI:AddSlider(parentCard, labelText, minValue, maxValue, defaultValue, callback)
+    local frame = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 42),
+        BackgroundTransparency = 1,
+        Parent = parentCard
+    })
+
+    local label = create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 20),
+        BackgroundTransparency = 1,
+        Text = labelText .. ": " .. tostring(defaultValue),
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.Font,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = frame
+    })
+
+    local bar = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 5),
+        Position = UDim2.new(0, 0, 0, 27),
+        BackgroundColor3 = HanxUI.Theme.ToggleBg,
+        Parent = frame
+    })
+    round(bar, 3)
+
+    local initial = math.clamp((defaultValue - minValue) / (maxValue - minValue), 0, 1)
+    local fill = create("Frame", {
+        Size = UDim2.new(initial, 0, 1, 0),
+        BackgroundColor3 = HanxUI.Theme.Accent,
+        Parent = bar
+    })
+    round(fill, 3)
+
+    local dragging = false
+
+    local function update(input)
+        if bar.AbsoluteSize.X <= 0 then return end
+        local pos = math.clamp(
+            (input.Position.X - bar.AbsolutePosition.X) / bar.AbsoluteSize.X,
+            0,
+            1
+        )
+        local value = math.floor(minValue + ((maxValue - minValue) * pos))
+        fill.Size = UDim2.new(pos, 0, 1, 0)
+        label.Text = labelText .. ": " .. tostring(value)
+        if callback then callback(value) end
+    end
+
+    bar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            update(input)
+        end
+    end)
+
+    UIS.InputChanged:Connect(function(input)
+        if dragging and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+            update(input)
+        end
+    end)
+
+    UIS.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = false
+        end
+    end)
+end
+
+function HanxUI:AddButton(parentCard, labelText, callback)
+    local btn = create("TextButton", {
+        Size = UDim2.new(1, 0, 0, 35),
+        BackgroundColor3 = HanxUI.Theme.Accent,
+        Text = labelText,
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 12,
+        AutoButtonColor = false,
+        Parent = parentCard
+    })
+    round(btn, 6)
+
+    create("UIStroke", {
+        Color = Color3.fromRGB(255, 255, 255),
+        Transparency = 0.8,
+        Parent = btn
+    })
+
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {
+            BackgroundColor3 = Color3.fromRGB(220, 40, 40)
+        }):Play()
+    end)
+
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {
+            BackgroundColor3 = HanxUI.Theme.Accent
+        }):Play()
+    end)
+
+    btn.MouseButton1Click:Connect(function()
+        if callback then callback() end
+    end)
+end
+
+-- KEY SYSTEM
+local function ShowKeyPrompt(callback)
+    local playerGui = LP:WaitForChild("PlayerGui")
+    local oldAuth = playerGui:FindFirstChild("HanxAuth")
+    if oldAuth then oldAuth:Destroy() end
+
+    local authGui = create("ScreenGui", {
+        Name = "HanxAuth",
+        ResetOnSpawn = false,
+        Parent = playerGui
+    })
+
+    local frame = create("Frame", {
+        Size = UDim2.new(0, 340, 0, 240),
+        Position = UDim2.new(0.5, -170, 0.5, -120),
+        BackgroundColor3 = HanxUI.Theme.Bg,
+        Parent = authGui
+    })
+    round(frame, 12)
+    create("UIStroke", {
+        Thickness = 1.5,
+        Color = HanxUI.Theme.Accent,
+        Parent = frame
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 45),
+        BackgroundTransparency = 1,
+        Text = "HANX HUB",
+        TextColor3 = HanxUI.Theme.Text,
+        Font = Enum.Font.GothamBlack,
+        TextSize = 22,
+        Parent = frame
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 15),
+        Position = UDim2.new(0, 0, 0, 40),
+        BackgroundTransparency = 1,
+        Text = "Premium Script Access",
+        TextColor3 = HanxUI.Theme.Accent,
+        Font = Enum.Font.Gotham,
+        TextSize = 10,
+        Parent = frame
+    })
+
+    local getKeyBtn = create("TextButton", {
+        Size = UDim2.new(0.85, 0, 0, 36),
+        Position = UDim2.new(0.075, 0, 0.25, 0),
+        BackgroundColor3 = Color3.fromRGB(35, 160, 35),
+        Text = "GET KEY HERE",
+        TextColor3 = HanxUI.Theme.Text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        AutoButtonColor = false,
+        Parent = frame
+    })
+    round(getKeyBtn, 8)
+
+    getKeyBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(AD_LINK)
+            getKeyBtn.Text = "LINK COPIED!"
+        else
+            getKeyBtn.Text = "CLIPBOARD NOT SUPPORTED"
+        end
+        task.delay(2, function()
+            if getKeyBtn and getKeyBtn.Parent then
+                getKeyBtn.Text = "GET KEY HERE"
+            end
+        end)
+    end)
+
+    local inputFrame = create("Frame", {
+        Size = UDim2.new(0.85, 0, 0, 40),
+        Position = UDim2.new(0.075, 0, 0.45, 0),
+        BackgroundColor3 = HanxUI.Theme.Card,
+        Parent = frame
+    })
+    round(inputFrame, 8)
+
+    local input = create("TextBox", {
+        Size = UDim2.new(1, -20, 1, 0),
+        Position = UDim2.new(0, 10, 0, 0),
+        BackgroundTransparency = 1,
+        Text = "",
+        PlaceholderText = "Masukkan Key...",
+        PlaceholderColor3 = Color3.fromRGB(150, 150, 160),
+        TextColor3 = HanxUI.Theme.Text,
+        Font = Enum.Font.Gotham,
+        TextSize = 14,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        ClearTextOnFocus = false,
+        Parent = inputFrame
+    })
+
+    local verifyBtn = create("TextButton", {
+        Size = UDim2.new(0.85, 0, 0, 36),
+        Position = UDim2.new(0.075, 0, 0.65, 0),
+        BackgroundColor3 = HanxUI.Theme.Accent,
+        Text = "VERIFY ACCESS",
+        TextColor3 = HanxUI.Theme.Text,
+        Font = Enum.Font.GothamBold,
+        TextSize = 13,
+        AutoButtonColor = false,
+        Parent = frame
+    })
+    round(verifyBtn, 8)
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 20),
+        Position = UDim2.new(0, 0, 1, -25),
+        BackgroundTransparency = 1,
+        Text = "Protected by Move2Link | HANX HUB",
+        TextColor3 = Color3.fromRGB(80, 80, 90),
+        Font = Enum.Font.Gotham,
+        TextSize = 10,
+        Parent = frame
+    })
+
+    verifyBtn.MouseButton1Click:Connect(function()
+        verifyBtn.Text = "CHECKING..."
+        verifyBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+
+        local success, result = pcall(function()
+            if syn and syn.request then
+                local r = syn.request({Url = KEY_URL, Method = "GET"})
+                return r and r.Body or nil
+            elseif http and http.request then
+                local r = http.request({Url = KEY_URL, Method = "GET"})
+                return r and r.Body or nil
+            elseif request then
+                local r = request({Url = KEY_URL, Method = "GET"})
+                return r and r.Body or nil
+            else
+                return game:HttpGet(KEY_URL)
+            end
+        end)
+
+        if not success or type(result) ~= "string" then
+            verifyBtn.Text = "NETWORK ERROR"
+            verifyBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+            return
         end
 
-        txt.Text = "Auto Parry: " .. (AutoParry.Enabled and "ON" or "OFF")
-        btn.BackgroundColor3 = AutoParry.Enabled and Theme.Neon or Theme.ToggleOff
-        txt.TextColor3 = AutoParry.Enabled and Theme.Bg or Theme.Text
-    end
-)
-
-
-CreateMimiwButton(
-    SurvivorPage,
-    "Range: 18",
-    Theme.Card,
-    "Auto Parry detection range",
-    function(btn, txt)
-        AutoParry.Range = AutoParry.Range + 6
-        if AutoParry.Range > 42 then
-            AutoParry.Range = 12
-        end
-        txt.Text = "Range: " .. AutoParry.Range
-    end
-)
-
-CreateMimiwButton(
-    SurvivorPage,
-    "Delay: 0.08",
-    Theme.Card,
-    "Auto Parry delay",
-    function(btn, txt)
-        AutoParry.Delay = AutoParry.Delay + 0.04
-        if AutoParry.Delay > 0.3 then
-            AutoParry.Delay = 0
+        local rawKey = ""
+        for line in string.gmatch(result, "[^\r\n]+") do
+            local cleaned = string.match(line, "^%s*(.-)%s*$")
+            if cleaned and cleaned ~= "" then
+                rawKey = cleaned
+            end
         end
 
-        AutoParry.Delay = math.floor(AutoParry.Delay * 100 + 0.5) / 100
-        txt.Text = "Delay: " .. AutoParry.Delay
-    end
-)
+        local cleanKey = string.lower(string.gsub(rawKey, "[^%w%-]", ""))
+        local userInput = string.lower(string.gsub(input.Text, "[^%w%-]", ""))
 
-CreateMimiwButton(
-    SurvivorPage,
-    "Parry Key: F",
-    Theme.Card,
-    "PC keyboard parry key",
-    function(btn, txt)
-        AutoParry.KeyIndex = AutoParry.KeyIndex % #AP_Keys + 1
-        txt.Text = "Parry Key: " .. AP_Keys[AutoParry.KeyIndex][1]
-    end
-)
+        if cleanKey ~= "" and userInput == cleanKey then
+            verifyBtn.Text = "ACCESS GRANTED"
+            verifyBtn.BackgroundColor3 = Color3.fromRGB(35, 160, 35)
+            task.wait(0.5)
+            authGui:Destroy()
+            callback()
+        else
+            verifyBtn.Text = "WRONG KEY!"
+            verifyBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+            task.delay(1, function()
+                if verifyBtn and verifyBtn.Parent then
+                    verifyBtn.Text = "VERIFY ACCESS"
+                    verifyBtn.BackgroundColor3 = HanxUI.Theme.Accent
+                end
+            end)
+        end
+    end)
+end
 
-CreateMimiwButton(
-    SurvivorPage,
-    "Killer Only: ON",
-    Theme.Card,
-    "Only detect killer",
-    function(btn, txt)
-        AutoParry.KillerOnly = not AutoParry.KillerOnly
-        txt.Text = "Killer Only: " .. (AutoParry.KillerOnly and "ON" or "OFF")
-    end
-)
+-- FEATURE ENGINE
+local HanxFeature = {}
+HanxFeature.__index = HanxFeature
 
-CreateMimiwButton(
-    SurvivorPage,
-    "Facing Check: ON",
-    Theme.Card,
-    "Check killer facing direction",
-    function(btn, txt)
-        AutoParry.Facing = not AutoParry.Facing
-        txt.Text = "Facing Check: " .. (AutoParry.Facing and "ON" or "OFF")
-    end
-)
+function HanxFeature.new()
+    return setmetatable({
+        State = {
+            Fly = false,
+            FlySpeed = 100,
+            Noclip = false,
+            InfJump = false,
+            ESP_Player = false,
+            ESP_Killer = false,
+            ESP_Object = false,
+            AutoSkillcheckGen = false
+        },
+        ESPObjects = {}
+    }, HanxFeature)
+end
 
--- ISI TAB UTILITY (FITUR BARU)
+function HanxFeature:ToggleFly(state)
+    self.State.Fly = state
 
+    local char = LP.Character
+    if not char then return end
 
-
-CreateLabel(UtilityPage, "Settings")
-
--- FULLBRIGHT + ANTI FOG
-local isFullbright = false
-local antiFogEnabled = false
-
-local originalBrightness = Lighting.Brightness
-local originalFogStart = Lighting.FogStart
-local originalFogEnd = Lighting.FogEnd
-local originalAmbient = Lighting.Ambient
-
-local originalAtmosphere = {}
-
-local function SetAntiFog(state)
-    antiFogEnabled = state
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hrp or not hum then return end
 
     if state then
-        Lighting.FogStart = 0
-        Lighting.FogEnd = 1000000
+        if self.FlyConn then self.FlyConn:Disconnect() end
 
-        for _, v in ipairs(Lighting:GetDescendants()) do
-            if v:IsA("Atmosphere") then
-                if not originalAtmosphere[v] then
-                    originalAtmosphere[v] = {
-                        Density = v.Density,
-                        Haze = v.Haze,
-                        Glare = v.Glare
-                    }
-                end
+        local att = Instance.new("Attachment")
+        att.Name = "HanxFlyAttachment"
+        att.Parent = hrp
 
-                v.Density = 0
-                v.Haze = 0
-                v.Glare = 0
+        local pos = Instance.new("AlignPosition")
+        pos.Name = "HanxFlyPosition"
+        pos.Attachment0 = att
+        pos.Mode = Enum.PositionAlignmentMode.OneAttachment
+        pos.MaxForce = 100000
+        pos.Position = hrp.Position
+        pos.Responsiveness = 50
+        pos.Parent = hrp
+
+        local ori = Instance.new("AlignOrientation")
+        ori.Name = "HanxFlyOrientation"
+        ori.Attachment0 = att
+        ori.Mode = Enum.OrientationAlignmentMode.OneAttachment
+        ori.MaxTorque = 100000
+        ori.Responsiveness = 50
+        ori.Parent = hrp
+
+        hum.PlatformStand = true
+
+        self.FlyConn = RunService.Heartbeat:Connect(function(dt)
+            if not self.State.Fly or not hrp.Parent then return end
+
+            local cam = workspace.CurrentCamera
+            if not cam then return end
+            local direction = Vector3.zero
+
+            if UIS:IsKeyDown(Enum.KeyCode.W) then direction += cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.S) then direction -= cam.CFrame.LookVector end
+            if UIS:IsKeyDown(Enum.KeyCode.A) then direction -= cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.D) then direction += cam.CFrame.RightVector end
+            if UIS:IsKeyDown(Enum.KeyCode.Space) then direction += Vector3.yAxis end
+            if UIS:IsKeyDown(Enum.KeyCode.LeftControl) then direction -= Vector3.yAxis end
+
+            if hum.MoveDirection.Magnitude > 0 then
+                direction += hum.MoveDirection
             end
-        end
+
+            if direction.Magnitude > 0 then
+                pos.Position += direction.Unit * self.State.FlySpeed * dt
+            end
+
+            ori.CFrame = cam.CFrame
+        end)
     else
-        Lighting.FogStart = originalFogStart
-        Lighting.FogEnd = originalFogEnd
-
-        for obj, data in pairs(originalAtmosphere) do
-            if obj.Parent then
-                obj.Density = data.Density
-                obj.Haze = data.Haze
-                obj.Glare = data.Glare
-            end
+        if self.FlyConn then
+            self.FlyConn:Disconnect()
+            self.FlyConn = nil
         end
+
+        for _, name in ipairs({
+            "HanxFlyPosition",
+            "HanxFlyOrientation",
+            "HanxFlyAttachment"
+        }) do
+            local object = hrp:FindFirstChild(name)
+            if object then object:Destroy() end
+        end
+
+        hum.PlatformStand = false
     end
 end
 
-CreateMimiwButton(
-    UtilityPage,
-    "Fullbright: OFF",
-    Theme.ToggleOff,
-    "Bikin map terang",
-    function(btn, txt)
-        isFullbright = not isFullbright
+function HanxFeature:ToggleNoclip(state)
+    self.State.Noclip = state
 
-        txt.Text = "Fullbright: " .. (isFullbright and "ON" or "OFF")
-        btn.BackgroundColor3 = isFullbright and Theme.Neon or Theme.ToggleOff
-        txt.TextColor3 = isFullbright and Theme.Bg or Theme.Text
-
-        if isFullbright then
-            Lighting.Brightness = 3
-            Lighting.ClockTime = 14
-            Lighting.Ambient = Color3.fromRGB(200, 200, 200)
-        else
-            Lighting.Brightness = originalBrightness
-            Lighting.Ambient = originalAmbient
-        end
-    end
-)
-
-CreateMimiwButton(
-    UtilityPage,
-    "Anti Fog: OFF",
-    Theme.ToggleOff,
-    "Mengurangi kabut map",
-    function(btn, txt)
-        SetAntiFog(not antiFogEnabled)
-
-        txt.Text = "Anti Fog: " .. (antiFogEnabled and "ON" or "OFF")
-        btn.BackgroundColor3 = antiFogEnabled and Theme.Neon or Theme.ToggleOff
-        txt.TextColor3 = antiFogEnabled and Theme.Bg or Theme.Text
-    end
-)
-
-
-
-
-local antiAfkEnabled = false
---CreateLabel(UtilityPage, "System")
-CreateMimiwButton(UtilityPage, "Anti-AFK: OFF", Theme.ToggleOff, "Cegah kick pas idle", function(btn, txt)
-    antiAfkEnabled = not antiAfkEnabled
-    txt.Text = "Anti-AFK: " .. (antiAfkEnabled and "ON" or "OFF")
-    btn.BackgroundColor3 = antiAfkEnabled and Theme.Neon or Theme.ToggleOff
-    txt.TextColor3 = antiAfkEnabled and Theme.Bg or Theme.Text
-    if antiAfkEnabled then
-        task.spawn(function()
-            while antiAfkEnabled do
-                task.wait(60)
-                pcall(function()
-                    local VirtualUser = game:GetService("VirtualUser")
-                    VirtualUser:CaptureController()
-                    VirtualUser:ClickButton2(Vector2.new())
-                end)
+    if state then
+        if self.NoclipConn then self.NoclipConn:Disconnect() end
+        self.NoclipConn = RunService.Stepped:Connect(function()
+            local char = LP.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
             end
         end)
+    else
+        if self.NoclipConn then
+            self.NoclipConn:Disconnect()
+            self.NoclipConn = nil
+        end
+        local char = LP.Character
+        if char then
+            for _, part in ipairs(char:GetDescendants()) do
+                if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                    part.CanCollide = true
+                end
+            end
+        end
     end
-end)
+end
 
---FIX LAG BY HANX HUB
-CreateLabel(UtilityPage, "Performance")
+function HanxFeature:UpdateESP()
+    local anyEnabled = self.State.ESP_Player or self.State.ESP_Killer or self.State.ESP_Object
 
-local LowGraphicsEnabled = false
-local SavedGraphics = {}
-local GraphicsConnection
-local Processing = false
-
-local function OptimizeObject(obj)
-    if not LowGraphicsEnabled then return end
-
-    local property = nil
-
-    if obj:IsA("ParticleEmitter")
-        or obj:IsA("Trail")
-        or obj:IsA("Beam")
-        or obj:IsA("Smoke")
-        or obj:IsA("Fire")
-        or obj:IsA("Sparkles") then
-
-        property = "Enabled"
-
-    elseif obj:IsA("BasePart") then
-        property = "CastShadow"
+    if self.ESPConn then
+        self.ESPConn:Disconnect()
+        self.ESPConn = nil
     end
 
-    if not property then return end
-
-    local success, original = pcall(function()
-        return obj[property]
-    end)
-
-    if not success then return end
-
-    if not SavedGraphics[obj] then
-        SavedGraphics[obj] = {}
+    for inst, highlight in pairs(self.ESPObjects) do
+        if highlight and highlight.Parent then
+            if not anyEnabled then
+                highlight:Destroy()
+                self.ESPObjects[inst] = nil
+            else
+                if inst:IsA("Player") then
+                    local isKiller = inst.Team and inst.Team.Name:lower():find("killer")
+                    if (isKiller and not self.State.ESP_Killer) or (not isKiller and not self.State.ESP_Player) then
+                        highlight:Destroy()
+                        self.ESPObjects[inst] = nil
+                    end
+                elseif not self.State.ESP_Object then
+                    highlight:Destroy()
+                    self.ESPObjects[inst] = nil
+                end
+            end
+        end
     end
 
-    if SavedGraphics[obj][property] == nil then
-        SavedGraphics[obj][property] = original
-    end
+    if not anyEnabled then return end
 
-    pcall(function()
-        obj[property] = false
+    self.ESPConn = RunService.RenderStepped:Connect(function()
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LP and player.Character then
+                local isKiller = player.Team and player.Team.Name:lower():find("killer")
+                local shouldRender = (isKiller and self.State.ESP_Killer) or (not isKiller and self.State.ESP_Player)
+                
+                local highlight = self.ESPObjects[player]
+                if shouldRender then
+                    if not highlight or not highlight.Parent then
+                        highlight = Instance.new("Highlight")
+                        highlight.Name = "HanxPlayerESP"
+                        highlight.FillColor = isKiller and Color3.fromRGB(255, 50, 50) or Color3.fromRGB(50, 200, 100)
+                        highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                        highlight.FillTransparency = 0.5
+                        highlight.Adornee = player.Character
+                        highlight.Parent = player.Character
+                        self.ESPObjects[player] = highlight
+                    elseif highlight.Adornee ~= player.Character then
+                        highlight.Adornee = player.Character
+                        highlight.Parent = player.Character
+                    end
+                elseif highlight then
+                    highlight:Destroy()
+                    self.ESPObjects[player] = nil
+                end
+            end
+        end
+
+        if self.State.ESP_Object then
+            local map = workspace:FindFirstChild("Map")
+            if map then
+                for _, obj in ipairs(map:GetDescendants()) do
+                    if (obj.Name == "PrimaryPartPallet" or obj.Name:find("Generator")) and obj:IsA("BasePart") then
+                        local highlight = self.ESPObjects[obj]
+                        if not highlight or not highlight.Parent then
+                            highlight = Instance.new("Highlight")
+                            highlight.Name = "HanxObjectESP"
+                            highlight.FillColor = Color3.fromRGB(255, 200, 50)
+                            highlight.OutlineColor = Color3.fromRGB(0, 0, 0)
+                            highlight.FillTransparency = 0.6
+                            highlight.Adornee = obj
+                            highlight.Parent = obj
+                            self.ESPObjects[obj] = highlight
+                        end
+                    end
+                end
+            end
+        end
     end)
 end
 
-local function EnableLowGraphics()
-    if Processing then return end
-    Processing = true
+function HanxFeature:TeleportToNearest()
+    local char = LP.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local closestRoot
+    local shortestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LP and player.Character then
+            local targetRoot = player.Character:FindFirstChild("HumanoidRootPart")
+            if targetRoot then
+                local distance = (hrp.Position - targetRoot.Position).Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    closestRoot = targetRoot
+                end
+            end
+        end
+    end
+
+    if closestRoot then
+        hrp.CFrame = closestRoot.CFrame + Vector3.new(0, 5, 0)
+    end
+end
+
+-- BUILD UI
+ShowKeyPrompt(function()
+    local Window = HanxUI.new("HANX HUB", "v17.5 | Premium Edition")
+
+    local TabHome = Window:AddTab("🏠", "Home")
+    local TabSurvivor = Window:AddTab("🏃", "Survivor")
+    local TabKiller = Window:AddTab("🔪", "Killer")
+    local TabESP = Window:AddTab("👁", "ESP")
+    local TabSettings = Window:AddTab("⚙", "Settings")
+    local TabSocial = Window:AddTab("🌐", "Media Social")
+
+    local Feature = HanxFeature.new()
+
+    local function homeLabel(parent, text, options)
+        options = options or {}
+        return create("TextLabel", {
+            Size = options.size or UDim2.new(1, 0, 0, options.height or 18),
+            BackgroundTransparency = 1,
+            Text = text,
+            TextColor3 = options.color or HanxUI.Theme.TextDim,
+            Font = options.font or HanxUI.Theme.Font,
+            TextSize = options.textSize or 11,
+            TextWrapped = options.wrapped or false,
+            TextXAlignment = Enum.TextXAlignment.Left,
+            TextYAlignment = Enum.TextYAlignment.Top,
+            Parent = parent
+        })
+    end
+
+    -- PROFILE CARD
+    local profileCard = HanxUI:AddCard(TabHome, "ROBLOX PROFILE")
+
+    local profileRow = create("Frame", {
+        Size = UDim2.new(1, 0, 0, 85),
+        BackgroundTransparency = 1,
+        Parent = profileCard
+    })
+
+    local avatar = create("ImageLabel", {
+        Size = UDim2.new(0, 70, 0, 70),
+        Position = UDim2.new(0, 0, 0, 5),
+        BackgroundColor3 = HanxUI.Theme.Sidebar,
+        Image = "",
+        ScaleType = Enum.ScaleType.Crop,
+        Parent = profileRow
+    })
+    round(avatar, 12)
+
+    create("UIStroke", {
+        Color = HanxUI.Theme.Accent,
+        Thickness = 1.5,
+        Parent = avatar
+    })
 
     task.spawn(function()
-        local objects = game:GetDescendants()
-
-        for i, obj in ipairs(objects) do
-            if not LowGraphicsEnabled then break end
-
-            OptimizeObject(obj)
-
-            if i % 100 == 0 then
-                task.wait()
-            end
-        end
-
-        Processing = false
-    end)
-
-    GraphicsConnection = game.DescendantAdded:Connect(function(obj)
-        if LowGraphicsEnabled then
-            OptimizeObject(obj)
-        end
-    end)
-end
-
-local function DisableLowGraphics()
-    if GraphicsConnection then
-        GraphicsConnection:Disconnect()
-        GraphicsConnection = nil
-    end
-
-    for obj, properties in pairs(SavedGraphics) do
-        if obj and obj.Parent then
-            for property, value in pairs(properties) do
-                pcall(function()
-                    obj[property] = value
-                end)
-            end
-        end
-    end
-
-    table.clear(SavedGraphics)
-end
-
-CreateMimiwButton(
-    UtilityPage,
-    "Low Graphics: OFF",
-    Theme.Card,
-    "Reduce visual effects without changing map colors",
-    function(btn, txt)
-
-        LowGraphicsEnabled = not LowGraphicsEnabled
-
-        if LowGraphicsEnabled then
-            EnableLowGraphics()
-
-            txt.Text = "Low Graphics: ON"
-            txt.TextColor3 = Theme.Neon
-        else
-            DisableLowGraphics()
-
-            txt.Text = "Low Graphics: OFF"
-            txt.TextColor3 = Color3.fromRGB(255, 255, 255)
-        end
-    end
-)
---REJOIN
-CreateLabel(UtilityPage, "Server Tools")
-
-CreateMimiwButton(
-    UtilityPage,
-    "Rejoin Server",
-    Theme.Card,
-    "Reconnect fix bug",
-    function(btn, txt)
-
-        txt.Text = "Rejoining..."
-        txt.TextColor3 = Theme.Neon
-
-        local Players = game:GetService("Players")
-        local TeleportService = game:GetService("TeleportService")
-        local player = Players.LocalPlayer
-
-        local failed = false
-
-        local connection
-        connection = TeleportService.TeleportInitFailed:Connect(
-            function(failedPlayer, result, message)
-                if failedPlayer ~= player or failed then
-                    return
-                end
-
-                failed = true
-                warn("[HANX HUB] Teleport failed:", result, message)
-
-                txt.Text = "Teleport Failed"
-                txt.TextColor3 = Color3.fromRGB(255, 70, 70)
-
-                if connection then
-                    connection:Disconnect()
-                end
-            end
-        )
-
-        local success, err = pcall(function()
-            TeleportService:Teleport(game.PlaceId, player)
+        local success, imageUrl = pcall(function()
+            return Players:GetUserThumbnailAsync(
+                LP.UserId,
+                Enum.ThumbnailType.HeadShot,
+                Enum.ThumbnailSize.Size150x150
+            )
         end)
 
-        if not success then
-            warn("[HANX HUB] Rejoin error:", err)
-            txt.Text = "Rejoin Failed"
-            txt.TextColor3 = Color3.fromRGB(255, 70, 70)
-
-            if connection then
-                connection:Disconnect()
-            end
+        if success and avatar.Parent then
+            avatar.Image = imageUrl
         end
-    end
-)
+    end)
 
--- ISI TAB SOCIAL MEDIA
-CreateLabel(SocialPage, "Join Our Community")
-CreateLabel(SocialPage, "Follow for updates and more scripts!")
+    create("TextLabel", {
+        Size = UDim2.new(1, -90, 0, 25),
+        Position = UDim2.new(0, 85, 0, 12),
+        BackgroundTransparency = 1,
+        Text = LP.DisplayName,
+        TextColor3 = HanxUI.Theme.Text,
+        Font = HanxUI.Theme.FontBlack,
+        TextSize = 17,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = profileRow
+    })
 
-CreateMimiwButton(SocialPage, "DISCORD SERVER", Theme.Card, "Click to open invite link", function(btn, txt)
-    if setclipboard then setclipboard("https://discord.gg/p6RrUTr8V"); txt.Text = "Opening Link..."; txt.TextColor3 = Theme.Neon
-        local success = pcall(function() if openbrowser then openbrowser("https://discord.gg/p6RrUTr8V") elseif request then request({Url = "https://discord.gg/p6RrUTr8V", Method = "GET"}) end end)
-        if not success then txt.Text = "Link Copied! Paste di browser." end
-        task.wait(2); txt.Text = "DISCORD SERVER"; txt.TextColor3 = Theme.Text end
-end)
+    create("TextLabel", {
+        Size = UDim2.new(1, -90, 0, 20),
+        Position = UDim2.new(0, 85, 0, 38),
+        BackgroundTransparency = 1,
+        Text = "@" .. LP.Name,
+        TextColor3 = HanxUI.Theme.TextDim,
+        Font = HanxUI.Theme.Font,
+        TextSize = 12,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = profileRow
+    })
 
-CreateMimiwButton(SocialPage, "YOUTUBE CHANNEL", Theme.Card, "Subscribe for more scripts!", function(btn, txt)
-    if setclipboard then setclipboard("https://youtube.com/@hanxhub"); txt.Text = "Opening Link..."; txt.TextColor3 = Theme.Neon
-        local success = pcall(function() if openbrowser then openbrowser("https://youtube.com/@hanxhub") elseif request then request({Url = "https://youtube.com/@hanxhub", Method = "GET"}) end end)
-        if not success then txt.Text = "Link Copied! Paste di browser." end
-        task.wait(2); txt.Text = "YOUTUBE CHANNEL"; txt.TextColor3 = Theme.Text end
-end)
+    create("TextLabel", {
+        Size = UDim2.new(1, -90, 0, 18),
+        Position = UDim2.new(0, 85, 0, 60),
+        BackgroundTransparency = 1,
+        Text = "● ROBLOX PLAYER",
+        TextColor3 = Color3.fromRGB(50, 200, 100),
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = profileRow
+    })
 
-CreateMimiwButton(SocialPage, "TIKTOK", Theme.Card, "Follow for tips & tricks", function(btn, txt)
-    if setclipboard then setclipboard("https://tiktok.com/@whoohnbro_"); txt.Text = "Opening Link..."; txt.TextColor3 = Theme.Neon
-        local success = pcall(function() if openbrowser then openbrowser("https://tiktok.com/@whoohnbro_") elseif request then request({Url = "https://tiktok.com/@whoohnbro_", Method = "GET"}) end end)
-        if not success then txt.Text = "Link Copied! Paste di browser." end
-        task.wait(2); txt.Text = "TIKTOK"; txt.TextColor3 = Theme.Text end
-end)
+    -- ACCOUNT INFORMATION
+    local accountCard = HanxUI:AddCard(TabHome, "ACCOUNT INFORMATION")
 
-CreateMimiwButton(SocialPage, "SAWERIA", Theme.Card, "Support for more content!", function(btn, txt)
-    if setclipboard then setclipboard("https://saweria.co/hanxhub"); txt.Text = "Opening Link..."; txt.TextColor3 = Theme.Neon
-        local success = pcall(function() if openbrowser then openbrowser("https://saweria.co/hanxhub") elseif request then request({Url = "https://saweria.co/hanxhub", Method = "GET"}) end end)
-        if not success then txt.Text = "Link Copied! Paste di browser." end
-        task.wait(2); txt.Text = "SAWERIA"; txt.TextColor3 = Theme.Text end
-end)
+    homeLabel(accountCard, "Username: " .. LP.Name, {
+        color = HanxUI.Theme.Text,
+        height = 22
+    })
 
--- WATERMARK & KEYBINDS
-local WatermarkGui = Instance.new("ScreenGui")
-WatermarkGui.Name = "HANX_Watermark"
-WatermarkGui.ResetOnSpawn = false
-WatermarkGui.Parent = CoreGui
-local Watermark = Instance.new("TextLabel")
-Watermark.Size = UDim2.fromOffset(150, 20); Watermark.Position = UDim2.new(0, 10, 0, 10); Watermark.BackgroundTransparency = 1; Watermark.Text = "HANX HUB | Free User"; Watermark.TextColor3 = Theme.Neon; Watermark.TextStrokeTransparency = 0; Watermark.Font = Enum.Font.GothamBold; Watermark.TextSize = 12; Watermark.Parent = WatermarkGui
+    homeLabel(accountCard, "Display Name: " .. LP.DisplayName, {
+        height = 22
+    })
 
-local keybindState = { ESP = false }
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
-    if input.KeyCode == Enum.KeyCode.V then
-        keybindState.ESP = not keybindState.ESP
-        ESP_Status.Survivor = keybindState.ESP; ESP_Status.Killer = keybindState.ESP
-    end
-end)
+    homeLabel(accountCard, "User ID: " .. tostring(LP.UserId), {
+        height = 22
+    })
 
--- SPLASH SCREEN
-local SplashGui = Instance.new("ScreenGui"); SplashGui.Name = "HANX_HUB_Splash"; SplashGui.ResetOnSpawn = false; SplashGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling; SplashGui.IgnoreGuiInset = true; SplashGui.DisplayOrder = 999; SplashGui.Parent = CoreGui
-local SplashBg = Instance.new("Frame"); SplashBg.Size = UDim2.fromScale(1, 1); SplashBg.BackgroundColor3 = Color3.new(0,0,0); SplashBg.BackgroundTransparency = 1; SplashBg.BorderSizePixel = 0; SplashBg.Parent = SplashGui
-local SplashBox = Instance.new("Frame"); SplashBox.Size = UDim2.fromOffset(280, 120); SplashBox.Position = UDim2.new(0.5, -140, 0.5, -60); SplashBox.BackgroundColor3 = Color3.fromRGB(15, 15, 18); SplashBox.BackgroundTransparency = 0.2; SplashBox.BorderSizePixel = 0; SplashBox.Parent = SplashGui; corner(SplashBox, 10); addStroke(SplashBox, Theme.Neon, 1, 0.5)
-local SplashTitle = Instance.new("TextLabel"); SplashTitle.Size = UDim2.new(1, 0, 0, 40); SplashTitle.Position = UDim2.new(0, 0, 0, 20); SplashTitle.BackgroundTransparency = 1; SplashTitle.Text = "HANX HUB"; SplashTitle.TextColor3 = Theme.Neon; SplashTitle.Font = Enum.Font.GothamBlack; SplashTitle.TextSize = 24; SplashTitle.Parent = SplashBox
-local SplashSub = Instance.new("TextLabel"); SplashSub.Size = UDim2.new(1, 0, 0, 20); SplashSub.Position = UDim2.new(0, 0, 0, 55); SplashSub.BackgroundTransparency = 1; SplashSub.Text = "Loading scripts..."; SplashSub.TextColor3 = Theme.SubText; SplashSub.Font = Enum.Font.Gotham; SplashSub.TextSize = 12; SplashSub.Parent = SplashBox
-local BarBg = Instance.new("Frame"); BarBg.Size = UDim2.new(1, -40, 0, 6); BarBg.Position = UDim2.new(0, 20, 1, -20); BarBg.BackgroundColor3 = Theme.Sidebar; BarBg.BorderSizePixel = 0; BarBg.Parent = SplashBox; corner(BarBg, 3)
-local BarFill = Instance.new("Frame"); BarFill.Size = UDim2.fromScale(0, 1); BarFill.BackgroundColor3 = Theme.Neon; BarFill.BorderSizePixel = 0; BarFill.Parent = BarBg; corner(BarFill, 3)
+    homeLabel(accountCard, "Account Age: " .. tostring(LP.AccountAge) .. " Days", {
+        height = 22
+    })
 
-task.spawn(function()
-    TweenService:Create(BarFill, TweenInfo.new(1.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.fromScale(1, 1)}):Play()
-    task.wait(1.6)
-    TweenService:Create(SplashBox, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(SplashTitle, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
-    TweenService:Create(SplashSub, TweenInfo.new(0.3), {TextTransparency = 1}):Play()
-    TweenService:Create(BarBg, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-    TweenService:Create(BarFill, TweenInfo.new(0.3), {BackgroundTransparency = 1}):Play()
-    task.wait(0.3)
-    SplashGui:Destroy()
+    -- SYSTEM STATUS
+    local statusCard = HanxUI:AddCard(TabHome, "SYSTEM STATUS")
+
+    homeLabel(statusCard, "HANX HUB Version: v17.6 Premium", {
+        color = HanxUI.Theme.Text,
+        height = 22
+    })
+
+    homeLabel(statusCard, "Executor: " ..
+        (identifyexecutor and identifyexecutor() or "Unknown"), {
+        height = 22
+    })
+
+    homeLabel(statusCard, "Script Status: Active", {
+        color = Color3.fromRGB(50, 200, 100),
+        height = 22
+    })
+
+    homeLabel(statusCard, "Game: " .. game.Name, {
+        height = 22
+    })
+
+    -- WELCOME CARD
+    local welcomeCard = HanxUI:AddCard(TabHome, "WELCOME TO HANX HUB")
+
+    homeLabel(welcomeCard,
+        "Welcome back, " .. LP.DisplayName ..
+        "!\nThank you for using HANX HUB Premium.\nEnjoy the interface and explore the available menus.",
+        {
+            color = HanxUI.Theme.Text,
+            height = 48,
+            wrapped = true
+        }
+    )
+
+    -- KILLER MENU
+    local killerAction = HanxUI:AddCard(TabKiller, "KILLER ACTIONS")
+
+    HanxUI:AddToggle(killerAction, "Noclip", false, function(value)
+        Feature:ToggleNoclip(value)
+    end)
+
+    HanxUI:AddButton(killerAction, "Teleport to Nearest Player", function()
+        Feature:TeleportToNearest()
+    end)
+
+    local killerCombat = HanxUI:AddCard(TabKiller, "KILLER COMBAT")
+
+    -- FAST VAULT UI
+    local survivorMove = HanxUI:AddCard(TabSurvivor, "SURVIVOR MECHANICS")
+
+    HanxUI:AddToggle(survivorMove, "Fast Vault", false, function(value)
+        FastVaultEnabled = value
+        _G.HANX_V35_ENABLED = value
+    end)
+
+    -- AUTO SKILLCHECK UI
+    local survivorSkill = HanxUI:AddCard(TabSurvivor, "SKILLCHECK SETTINGS")
     
-    Screen.Enabled = true
-    Window.Size = UDim2.fromOffset(0, 0)
-    task.wait(0.1)
-    TweenService:Create(Window, TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {Size = UDim2.fromOffset(580, 420)}):Play()
+    HanxUI:AddToggle(survivorSkill, "Auto Skillcheck Generator", false, function(value)
+        _G.HanxAutoGen = value
+        Feature.State.AutoSkillcheckGen = value
+    end)
+
+    -- AUTO PARRY UI (PAKAI TEXTBOX)
+    local cardSurvCombat = HanxUI:AddCard(TabSurvivor, "AUTO COMBAT")
+
+    HanxUI:AddToggle(cardSurvCombat, "Auto Parry", false, function(value)
+        AutoParryEnabled = value
+        if value then AP_Start() elseif AutoParry.Conn then AutoParry.Conn:Disconnect() end
+    end)
     
-    task.wait(0.4)
-    SelectTab(1)
-    print("[HANX HUB] Loaded.")
+    HanxUI:AddInput(cardSurvCombat, "Parry Range", AutoParry.Range, function(value)
+        if value > 0 then AutoParry.Range = value end
+    end)
+    
+    HanxUI:AddInput(cardSurvCombat, "Parry Delay (ms)", AutoParry.Delay * 1000, function(value)
+        if value >= 0 then AutoParry.Delay = value / 1000 end
+    end)
+
+    HanxUI:AddInput(cardSurvCombat, "Parry Cooldown (ms)", AutoParry.Cooldown * 1000, function(value)
+        if value >= 0 then AutoParry.Cooldown = value / 1000 end
+    end)
+
+    -- ESP TAB UI
+    local espPlayerCard = HanxUI:AddCard(TabESP, "PLAYER & KILLER")
+    
+    HanxUI:AddToggle(espPlayerCard, "ESP Survivor (Hijau)", false, function(value)
+        Feature.State.ESP_Player = value
+        Feature:UpdateESP()
+    end)
+
+    HanxUI:AddToggle(espPlayerCard, "ESP Killer (Merah)", false, function(value)
+        Feature.State.ESP_Killer = value
+        Feature:UpdateESP()
+    end)
+
+    local espObjectCard = HanxUI:AddCard(TabESP, "OBJECTIVES")
+
+    HanxUI:AddToggle(espObjectCard, "ESP Pallet / Generator", false, function(value)
+        Feature.State.ESP_Object = value
+        Feature:UpdateESP()
+    end)
+
+    -- SETTINGS
+    local settingsCard = HanxUI:AddCard(TabSettings, "INTERFACE SETTINGS")
+    HanxUI:AddSlider(settingsCard, "UI Transparency", 0, 100, 0, function(value)
+        Window.Main.BackgroundTransparency = value / 100
+    end)
+    local quickCard = HanxUI:AddCard(TabSettings, "QUICK ACTIONS")
+    HanxUI:AddButton(quickCard, "Rejoin Server", function()
+        game:GetService("TeleportService"):Teleport(game.PlaceId, LP)
+    end)
+    HanxUI:AddButton(quickCard, "Copy JobId (Server ID)", function()
+        if setclipboard then
+            setclipboard(tostring(game.JobId))
+        end
+    end)
+
+    -- MEDIA SOCIAL
+    local socialCard = HanxUI:AddCard(TabSocial, "HANX HUB COMMUNITY")
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 32),
+        BackgroundTransparency = 1,
+        Text = "Join our community and stay updated with the latest releases.",
+        TextColor3 = HanxUI.Theme.TextDim,
+        Font = HanxUI.Theme.Font,
+        TextSize = 11,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = socialCard
+    })
+
+    create("TextLabel", {
+        Size = UDim2.new(1, 0, 0, 22),
+        BackgroundTransparency = 1,
+        Text = "● OFFICIAL COMMUNITY",
+        TextColor3 = Color3.fromRGB(50, 200, 100),
+        Font = HanxUI.Theme.FontBold,
+        TextSize = 10,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = socialCard
+    })
+
+    local function OpenSocial(url)
+        if setclipboard then
+            pcall(function()
+                setclipboard(url)
+            end)
+        end
+
+        pcall(function()
+            game:GetService("GuiService"):OpenBrowserWindow(url)
+        end)
+    end
+
+    HanxUI:AddButton(socialCard, "💬  Discord Server", function()
+        OpenSocial(DISCORD_LINK)
+    end)
+
+    HanxUI:AddButton(socialCard, "▶  YouTube Channel", function()
+        OpenSocial(YOUTUBE_LINK)
+    end)
+
+    HanxUI:AddButton(socialCard, "♥  Support via Saweria", function()
+        OpenSocial(SAWERIA_LINK)
+    end)
+
+    LP.CharacterAdded:Connect(function()
+        if Feature.State.Noclip then Feature:ToggleNoclip(false) end
+        
+        Feature.State.ESP_Player = false
+        Feature.State.ESP_Killer = false
+        Feature.State.ESP_Object = false
+        Feature:UpdateESP()
+        
+        if AutoParry.Conn then AutoParry.Conn:Disconnect() end
+        AutoParryEnabled = false
+        Feature.State.AutoSkillcheckGen = false
+        _G.HanxAutoGen = false
+
+        FastVaultEnabled = false
+        _G.HANX_V35_ENABLED = false
+    end)
 end)
